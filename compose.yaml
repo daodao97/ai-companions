@@ -9,3 +9,6 @@ services:
     environment:
       - APP_ENV=test
     command: --bind 0.0.0.0:4001 --enable-openapi true
+    volumes:
+      - ./companion.db:/app/companion.db
+
