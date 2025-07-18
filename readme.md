@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="./docs/ai-companions.png" alt="AI Companions - AI 伴侣聊天系统" width="600">
+</div>
+
 # AI Companions - AI 伴侣聊天系统
 
 一个基于 Go 语言开发的智能 AI 伴侣系统，支持实时语音对话、文本聊天、视频交互等多种功能。
