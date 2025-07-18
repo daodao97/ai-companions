@@ -14,7 +14,6 @@ FROM alpine:latest AS final
 WORKDIR /app
 COPY --from=builder /build/app /app/
 COPY *.yaml /app/
-COPY openapi.json /app/openapi.json
 COPY assets /app/assets
 
 RUN apk update && \
