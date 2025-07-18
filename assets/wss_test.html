@@ -1,0 +1,1810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 调试页面</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+    <style>
+        html {
+            height: 100%;
+            overflow-y: auto;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+            overflow-y: auto;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .control-panel {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 100px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 300px;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        button {
+            padding: 8px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-connect {
+            background: #28a745;
+            color: white;
+        }
+        .btn-disconnect {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-send {
+            background: #007bff;
+            color: white;
+        }
+        .btn-clear {
+            background: #6c757d;
+            color: white;
+        }
+        .voice-control-panel {
+            background: #f0f8ff;
+            border: 2px solid #e3f2fd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        .voice-main-control {
+            margin-bottom: 15px;
+        }
+        .btn-voice-toggle {
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-right: 15px;
+        }
+        .btn-voice-toggle:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .btn-voice-toggle.listening {
+            background: #ff9800;
+            animation: pulse 2s infinite;
+        }
+        .btn-voice-toggle.speaking {
+            background: #f44336;
+            animation: pulse 1s infinite;
+        }
+        .btn-voice-toggle.disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+        .voice-status {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 15px;
+            font-weight: bold;
+            font-size: 14px;
+            vertical-align: middle;
+        }
+        .voice-status.disabled {
+            background: #f5f5f5;
+            color: #999;
+            border: 1px solid #ddd;
+        }
+        .voice-status.ready {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+        .voice-status.listening {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .voice-status.speaking {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+        }
+        .voice-info {
+            margin-top: 10px;
+        }
+        .voice-info-text {
+            color: #666;
+            font-style: italic;
+            font-size: 13px;
+        }
+        .audio-processing-controls, .noise-reduction-controls {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 0;
+        }
+        .noise-reduction-controls {
+            background: #f0f8ff;
+            border-color: #cce7ff;
+        }
+        .collapsible-content .audio-processing-controls,
+        .collapsible-content .noise-reduction-controls {
+            margin-top: 0;
+            border-top: none;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+        }
+        .processing-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .processing-row:last-child {
+            margin-bottom: 0;
+        }
+        .processing-row label {
+            width: 80px;
+            margin-right: 10px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        .speed-slider {
+            flex: 1;
+            margin-right: 10px;
+        }
+        .speed-value {
+            min-width: 40px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .compression-select {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            background: white;
+        }
+        .processing-checkbox {
+            margin-right: 8px;
+        }
+        .btn-test {
+            background: #17a2b8;
+            color: white;
+            padding: 4px 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .btn-test:hover {
+            background: #138496;
+        }
+        .btn-test:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .message-content {
+            margin-left: 5px;
+            display: inline-block;
+        }
+        .audio-player {
+            display: inline-block;
+            margin-left: 5px;
+        }
+        .btn-play-message {
+            background: #9b59b6;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .btn-play-message:hover {
+            background: #8e44ad;
+        }
+        .btn-play-message.playing {
+            background: #e74c3c;
+        }
+        .message.sent .btn-play-message {
+            background: #007bff;
+        }
+        .message.sent .btn-play-message:hover {
+            background: #0056b3;
+        }
+        .message.received .btn-play-message {
+            background: #28a745;
+        }
+        .message.received .btn-play-message:hover {
+            background: #1e7e34;
+        }
+        .audio-info {
+            color: #666;
+            font-size: 10px;
+            margin-left: 5px;
+        }
+        .noise-info {
+            color: #666;
+            font-size: 11px;
+            font-style: italic;
+            margin-left: 10px;
+            flex: 1;
+        }
+        .advanced-controls {
+            margin-top: 10px;
+        }
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+            margin-bottom: 10px;
+            user-select: none;
+        }
+        .collapsible-header:hover {
+            background-color: #f8f9fa;
+            margin: 0 -15px 10px -15px;
+            padding: 8px 15px;
+            border-radius: 3px;
+        }
+        .collapsible-icon {
+            font-size: 12px;
+            margin-right: 8px;
+            transition: transform 0.2s ease;
+        }
+        .collapsible-icon.expanded {
+            transform: rotate(90deg);
+        }
+        .collapsible-content {
+            display: none;
+            animation: slideDown 0.2s ease;
+        }
+        .collapsible-content.expanded {
+            display: block;
+        }
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                max-height: 0;
+            }
+            to {
+                opacity: 1;
+                max-height: 500px;
+            }
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .message.sent {
+            color: #007bff;
+        }
+        .message.received {
+            color: #28a745;
+        }
+        .message.error {
+            color: #dc3545;
+        }
+        .message.info {
+            color: #6c757d;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket 调试工具</h1>
+        
+        <div class="control-panel">
+            <div class="form-group">
+                <label>服务器地址:</label>
+                <input type="text" id="wsUrl" value="ws://localhost:4001/ws" placeholder="WebSocket URL">
+            </div>
+            
+            <div class="form-group">
+                <button id="connectBtn" class="btn-connect">连接</button>
+                <button id="disconnectBtn" class="btn-disconnect" disabled>断开连接</button>
+            </div>
+            
+            <div id="status" class="status disconnected">状态: 未连接</div>
+            
+            <div class="form-group">
+                <label>发送消息:</label>
+                <input type="text" id="messageInput" placeholder="输入要发送的消息" disabled>
+                <button id="sendBtn" class="btn-send" disabled>发送文本</button>
+            </div>
+            
+            <div class="form-group">
+                <label>音频播放:</label>
+                <button id="toggleAutoPlayBtn" class="btn-send">🔊 禁用自动播放</button>
+                <button id="stopAutoPlayBtn" class="btn-clear">⏹️ 停止播放</button>
+                <span id="autoPlayStatus" style="margin-left: 10px; color: #28a745; font-weight: bold;">自动播放已启用</span>
+            </div>
+            
+            <div class="voice-control-panel">
+                <div class="voice-main-control">
+                    <button id="voiceToggleBtn" class="btn-voice-toggle" disabled>🎤 启用语音</button>
+                    <span id="voiceStatus" class="voice-status">语音未启用</span>
+                </div>
+                
+                <div class="voice-info">
+                    <span id="voiceInfo" class="voice-info-text">点击启用语音后，说话时会自动录音并发送</span>
+                </div>
+                
+                <div class="advanced-controls">
+                    <div class="collapsible-header" id="audioProcessingHeader">
+                        <span class="collapsible-icon">▶</span>
+                        <span>🎵 音频处理设置</span>
+                    </div>
+                    <div class="collapsible-content audio-processing-controls" id="audioProcessingContent">
+                        <div class="processing-row">
+                            <label>语速调整:</label>
+                            <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" class="speed-slider">
+                            <span id="speedValue" class="speed-value">1.0x</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>音质压缩:</label>
+                            <select id="compressionLevel" class="compression-select">
+                                <option value="high">高质量 (无压缩)</option>
+                                <option value="medium" selected>中等质量 (轻度压缩)</option>
+                                <option value="low">低质量 (高度压缩)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="enableProcessing" class="processing-checkbox">
+                                启用音频处理
+                            </label>
+                            <button id="testPlaybackBtn" class="btn-test" disabled>🔊 测试播放效果</button>
+                        </div>
+                    </div>
+                    
+                    <div class="collapsible-header" id="noiseReductionHeader">
+                        <span class="collapsible-icon">▶</span>
+                        <span>🔇 降噪设置</span>
+                    </div>
+                    <div class="collapsible-content noise-reduction-controls" id="noiseReductionContent">
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="noiseSuppressionCheckbox" class="processing-checkbox" checked>
+                                噪声抑制 (WebRTC)
+                            </label>
+                            <span class="noise-info">抑制背景噪音</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="echoCancellationCheckbox" class="processing-checkbox" checked>
+                                回声消除 (WebRTC)
+                            </label>
+                            <span class="noise-info">消除扬声器回声</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="autoGainControlCheckbox" class="processing-checkbox" checked>
+                                自动增益控制 (WebRTC)
+                            </label>
+                            <span class="noise-info">自动调节音量</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="highpassFilterCheckbox" class="processing-checkbox">
+                                高通滤波器
+                            </label>
+                            <span class="noise-info">过滤低频噪音</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <label>
+                                <input type="checkbox" id="volumeGateCheckbox" class="processing-checkbox">
+                                音量门限
+                            </label>
+                            <input type="range" id="volumeThresholdSlider" min="0.01" max="0.5" step="0.01" value="0.1" class="speed-slider" disabled>
+                            <span id="volumeThresholdValue" class="speed-value">0.1</span>
+                        </div>
+                        
+                        <div class="processing-row">
+                            <button id="applyNoiseSettingsBtn" class="btn-test">🔄 应用降噪设置</button>
+                            <button id="testNoiseReductionBtn" class="btn-test" disabled>🎤 测试降噪效果</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="clearBtn" class="btn-clear">清空日志</button>
+        </div>
+        
+        <div class="messages" id="messages"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnecting = false;
+        
+        // 音频录制相关变量
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let audioBlob = null;
+        let mediaStream = null;
+        let isRecording = false;
+        
+        // VAD 相关变量
+        let vad = null;
+        let vadEnabled = false;
+        let vadListening = false;
+        
+        // 心跳相关变量
+        let pingInterval = null;
+        let lastPongTime = null;
+        let lastPingTime = null;
+        let connectionStatus = 'disconnected';
+        
+        // 音频处理相关变量
+        let audioContext = null;
+        let processingEnabled = false;
+        let playbackSpeed = 1.0;
+        let compressionLevel = 'medium';
+        let lastRecordedAudio = null;
+        
+        // 降噪相关变量
+        let noiseSuppressionEnabled = true;
+        let echoCancellationEnabled = true;
+        let autoGainControlEnabled = true;
+        let highpassFilterEnabled = false;
+        let volumeGateEnabled = false;
+        let volumeThreshold = 0.1;
+        
+        // 自动播放音频相关变量
+        let audioPlayQueue = [];
+        let isAutoPlaying = false;
+        let currentAudio = null;
+        let audioAutoPlayEnabled = true;
+        let currentMessageId = null;
+        let audioMessages = {}; // 按 message_id 分组的音频消息
+        
+        const wsUrlInput = document.getElementById('wsUrl');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const statusDiv = document.getElementById('status');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const messagesDiv = document.getElementById('messages');
+        
+        // 语音控制元素
+        const voiceToggleBtn = document.getElementById('voiceToggleBtn');
+        const voiceStatus = document.getElementById('voiceStatus');
+        const voiceInfo = document.getElementById('voiceInfo');
+        
+        // 音频处理控件
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        const compressionLevelSelect = document.getElementById('compressionLevel');
+        const enableProcessingCheckbox = document.getElementById('enableProcessing');
+        const testPlaybackBtn = document.getElementById('testPlaybackBtn');
+        
+        // 自动播放控制元素
+        const toggleAutoPlayBtn = document.getElementById('toggleAutoPlayBtn');
+        const stopAutoPlayBtn = document.getElementById('stopAutoPlayBtn');
+        const autoPlayStatus = document.getElementById('autoPlayStatus');
+        
+        // 降噪控制元素
+        const noiseSuppressionCheckbox = document.getElementById('noiseSuppressionCheckbox');
+        const echoCancellationCheckbox = document.getElementById('echoCancellationCheckbox');
+        const autoGainControlCheckbox = document.getElementById('autoGainControlCheckbox');
+        const highpassFilterCheckbox = document.getElementById('highpassFilterCheckbox');
+        const volumeGateCheckbox = document.getElementById('volumeGateCheckbox');
+        const volumeThresholdSlider = document.getElementById('volumeThresholdSlider');
+        const volumeThresholdValue = document.getElementById('volumeThresholdValue');
+        const applyNoiseSettingsBtn = document.getElementById('applyNoiseSettingsBtn');
+        const testNoiseReductionBtn = document.getElementById('testNoiseReductionBtn');
+        
+        function updateStatus(status, className) {
+            statusDiv.textContent = `状态: ${status}`;
+            statusDiv.className = `status ${className}`;
+            connectionStatus = className;
+        }
+        
+        function addMessage(message, type = 'info', extraContent = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'timestamp';
+            timestampSpan.textContent = `[${timestamp}]`;
+            
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = ` ${message}`;
+            
+            messageDiv.appendChild(timestampSpan);
+            messageDiv.appendChild(messageSpan);
+            
+            if (extraContent) {
+                messageDiv.appendChild(extraContent);
+            }
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function createAudioPlayer(audioData, audioFormat, audioSize, chunkId, messageId) {
+            const playerDiv = document.createElement('div');
+            playerDiv.className = 'audio-player';
+            
+            const playBtn = document.createElement('button');
+            playBtn.className = 'btn-play-message';
+            playBtn.textContent = '▶️ 播放';
+            
+            const audioInfo = document.createElement('span');
+            audioInfo.className = 'audio-info';
+            let infoText = `(${audioFormat}, ${(audioSize / 1024).toFixed(1)}KB)`;
+            if (messageId && chunkId !== undefined) {
+                infoText = `(消息${messageId}-片段${chunkId}, ${audioFormat}, ${(audioSize / 1024).toFixed(1)}KB)`;
+            } else if (chunkId !== undefined) {
+                infoText = `(块${chunkId}, ${audioFormat}, ${(audioSize / 1024).toFixed(1)}KB)`;
+            } else if (messageId) {
+                infoText = `(消息${messageId}, ${audioFormat}, ${(audioSize / 1024).toFixed(1)}KB)`;
+            }
+            audioInfo.textContent = infoText;
+            
+            let audio = null;
+            let isPlaying = false;
+            
+            playBtn.addEventListener('click', function() {
+                if (isPlaying) {
+                    if (audio) {
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }
+                    playBtn.textContent = '▶️ 播放';
+                    playBtn.classList.remove('playing');
+                    isPlaying = false;
+                                 } else {
+                     try {
+                         // 将 base64 转换为音频 blob
+                         const binaryString = atob(audioData);
+                         const bytes = new Uint8Array(binaryString.length);
+                         for (let i = 0; i < binaryString.length; i++) {
+                             bytes[i] = binaryString.charCodeAt(i);
+                         }
+                         
+                         const audioBlob = new Blob([bytes], { type: `audio/${audioFormat}` });
+                         const audioUrl = URL.createObjectURL(audioBlob);
+                         audio = new Audio(audioUrl);
+                         
+                         audio.onloadstart = () => {
+                             playBtn.textContent = '⏳ 加载中';
+                         };
+                         
+                         audio.oncanplay = () => {
+                             playBtn.textContent = '⏸️ 停止';
+                             playBtn.classList.add('playing');
+                             isPlaying = true;
+                         };
+                         
+                         audio.onended = () => {
+                             playBtn.textContent = '▶️ 播放';
+                             playBtn.classList.remove('playing');
+                             isPlaying = false;
+                             URL.revokeObjectURL(audioUrl);
+                         };
+                         
+                         audio.onerror = (e) => {
+                             playBtn.textContent = '❌ 错误';
+                             playBtn.classList.remove('playing');
+                             isPlaying = false;
+                             URL.revokeObjectURL(audioUrl);
+                             console.error('Audio playback error:', e);
+                         };
+                         
+                         audio.play().catch(error => {
+                             playBtn.textContent = '❌ 错误';
+                             playBtn.classList.remove('playing');
+                             isPlaying = false;
+                             URL.revokeObjectURL(audioUrl);
+                             console.error('Audio play error:', error);
+                         });
+                     } catch (error) {
+                         playBtn.textContent = '❌ 错误';
+                         playBtn.classList.remove('playing');
+                         isPlaying = false;
+                         console.error('Audio processing error:', error);
+                     }
+                 }
+            });
+            
+            playerDiv.appendChild(playBtn);
+            playerDiv.appendChild(audioInfo);
+            
+            return playerDiv;
+        }
+        
+        // 自动播放音频相关函数
+        function autoPlayAudio(audioData) {
+            const messageId = audioData.message_id || 'default';
+            const audioItem = {
+                data: audioData.data,
+                format: audioData.format || 'mpga',
+                chunkId: audioData.chunk_id || 0,
+                isEnd: audioData.is_end || false,
+                size: audioData.size || 0,
+                messageId: messageId
+            };
+            
+            // 如果是新的 message_id，先停止当前播放
+            if (currentMessageId && currentMessageId !== messageId) {
+                addMessage(`🔄 检测到新音频消息 (${messageId})，打断当前播放 (${currentMessageId})`, 'info');
+                interruptCurrentAudio();
+            }
+            
+            // 按 message_id 分组存储音频片段
+            if (!audioMessages[messageId]) {
+                audioMessages[messageId] = [];
+                addMessage(`🎵 开始接收音频消息: ${messageId}`, 'info');
+            }
+            
+            audioMessages[messageId].push(audioItem);
+            addMessage(`📦 收到音频片段 ${audioItem.chunkId} (消息ID: ${messageId})`, 'info');
+            
+            // 如果当前没有播放其他音频，开始播放这个消息
+            if (!isAutoPlaying || currentMessageId !== messageId) {
+                currentMessageId = messageId;
+                playAudioMessage(messageId);
+            }
+        }
+        
+        // 播放指定 message_id 的音频消息
+        function playAudioMessage(messageId) {
+            if (!audioMessages[messageId] || audioMessages[messageId].length === 0) {
+                return;
+            }
+            
+            isAutoPlaying = true;
+            currentMessageId = messageId;
+            
+            // 按 chunkId 排序音频片段
+            const sortedChunks = audioMessages[messageId].sort((a, b) => a.chunkId - b.chunkId);
+            
+            let currentIndex = 0;
+            
+            function playNextChunk() {
+                if (currentIndex >= sortedChunks.length) {
+                    // 当前消息播放完成
+                    isAutoPlaying = false;
+                    currentAudio = null;
+                    addMessage(`🎵 音频消息 ${messageId} 播放完成`, 'info');
+                    
+                    // 清理已完成的消息
+                    delete audioMessages[messageId];
+                    
+                    // 检查是否有其他待播放的消息
+                    const pendingMessages = Object.keys(audioMessages);
+                    if (pendingMessages.length > 0) {
+                        const nextMessageId = pendingMessages[0];
+                        addMessage(`🔄 切换到下一个音频消息: ${nextMessageId}`, 'info');
+                        playAudioMessage(nextMessageId);
+                    } else {
+                        currentMessageId = null;
+                    }
+                    return;
+                }
+                
+                const audioItem = sortedChunks[currentIndex];
+                currentIndex++;
+                
+                try {
+                    // 将 base64 转换为音频 blob
+                    const binaryString = atob(audioItem.data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    const audioBlob = new Blob([bytes], { type: `audio/${audioItem.format}` });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    addMessage(`🔊 播放音频片段 ${audioItem.chunkId} (消息: ${messageId}, ${(audioItem.size / 1024).toFixed(1)}KB)`, 'info');
+                    
+                    currentAudio.oncanplay = () => {
+                        currentAudio.play().catch(error => {
+                            addMessage(`🔊 播放失败: ${error.message}`, 'error');
+                            playNextChunk(); // 播放失败时继续下一个
+                        });
+                    };
+                    
+                    currentAudio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                        addMessage(`✅ 音频片段 ${audioItem.chunkId} 播放完成`, 'info');
+                        
+                        // 播放下一个片段
+                        setTimeout(playNextChunk, 50); // 片段间的小间隔
+                    };
+                    
+                    currentAudio.onerror = (e) => {
+                        URL.revokeObjectURL(audioUrl);
+                        addMessage(`❌ 音频播放错误: ${e.message || '未知错误'}`, 'error');
+                        playNextChunk(); // 播放错误时继续下一个
+                    };
+                    
+                } catch (error) {
+                    addMessage(`❌ 音频处理错误: ${error.message}`, 'error');
+                    playNextChunk(); // 处理错误时继续下一个
+                }
+            }
+            
+            playNextChunk();
+        }
+        
+        // 打断当前音频播放
+        function interruptCurrentAudio() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+                addMessage('⏸️ 当前音频播放已被打断', 'info');
+            }
+            
+            // 清空播放状态
+            isAutoPlaying = false;
+            
+            // 清理当前播放的消息（但保留音频数据，以便后续重新播放）
+            if (currentMessageId) {
+                addMessage(`🗑️ 清理当前播放消息: ${currentMessageId}`, 'info');
+                currentMessageId = null;
+            }
+        }
+        
+        function stopAutoPlay() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            audioPlayQueue = [];
+            audioMessages = {}; // 清空所有音频消息
+            isAutoPlaying = false;
+            currentMessageId = null;
+            addMessage('🔊 已停止自动播放，清空所有音频队列', 'info');
+        }
+        
+        function toggleAutoPlay() {
+            audioAutoPlayEnabled = !audioAutoPlayEnabled;
+            const status = audioAutoPlayEnabled ? '启用' : '禁用';
+            
+            // 更新按钮文本和状态显示
+            toggleAutoPlayBtn.textContent = audioAutoPlayEnabled ? '🔊 禁用自动播放' : '🔊 启用自动播放';
+            autoPlayStatus.textContent = audioAutoPlayEnabled ? '自动播放已启用' : '自动播放已禁用';
+            autoPlayStatus.style.color = audioAutoPlayEnabled ? '#28a745' : '#dc3545';
+            
+            addMessage(`🔊 自动播放已${status}`, 'info');
+            
+            if (!audioAutoPlayEnabled) {
+                stopAutoPlay();
+            }
+        }
+        
+        function connect() {
+            if (isConnecting || (ws && ws.readyState === WebSocket.OPEN)) {
+                return;
+            }
+            
+            const url = wsUrlInput.value.trim();
+            if (!url) {
+                addMessage('请输入有效的 WebSocket URL', 'error');
+                return;
+            }
+            
+            isConnecting = true;
+            updateStatus('正在连接...', 'connecting');
+            connectBtn.disabled = true;
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = function(event) {
+                    isConnecting = false;
+                    updateStatus('已连接', 'connected');
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    messageInput.disabled = false;
+                    sendBtn.disabled = false;
+                    addMessage('WebSocket 连接已建立', 'info');
+                    
+                    // 连接成功后初始化麦克风
+                    initMicrophone();
+                    startHeartbeat(); // 连接成功后启动心跳
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        // 尝试解析 JSON 消息
+                        const messageData = JSON.parse(event.data);
+                        
+                        if (messageData.type === 'text') {
+                            // 文本消息：直接显示内容
+                            const contentDiv = document.createElement('span');
+                            contentDiv.className = 'message-content';
+                            contentDiv.textContent = messageData.data;
+                            addMessage('收到文本:', 'received', contentDiv);
+                            
+                        } else if (messageData.type === 'audio') {
+                            // 音频消息：显示播放按钮并自动播放
+                            const audioPlayer = createAudioPlayer(
+                                messageData.data, 
+                                messageData.format || 'mpga', 
+                                messageData.size || 0,
+                                messageData.chunk_id || 0,
+                                messageData.message_id || 'default'
+                            );
+                            
+                            let messageText = '收到音频:';
+                            if (messageData.message_id) {
+                                if (messageData.chunk_id !== undefined) {
+                                    messageText = `收到音频片段 ${messageData.chunk_id} (消息ID: ${messageData.message_id}):`;
+                                } else {
+                                    messageText = `收到音频 (消息ID: ${messageData.message_id}):`;
+                                }
+                            } else if (messageData.chunk_id !== undefined) {
+                                messageText = `收到音频块 ${messageData.chunk_id}:`;
+                            }
+                            
+                            addMessage(messageText, 'received', audioPlayer);
+                            
+                            // 自动播放音频
+                            if (audioAutoPlayEnabled) {
+                                autoPlayAudio(messageData);
+                            }
+                            
+                        } else if (messageData.type === 'pong') {
+                            // 心跳响应：处理服务端的pong回复
+                            handlePongMessage(messageData);
+                        } else {
+                            // 其他类型的消息
+                            addMessage(`收到消息 (${messageData.type}): ${JSON.stringify(messageData)}`, 'received');
+                        }
+                        
+                    } catch (error) {
+                        // 如果不是 JSON 格式，按原文本显示
+                        addMessage(`收到: ${event.data}`, 'received');
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    isConnecting = false;
+                    updateStatus('连接已关闭', 'disconnected');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    messageInput.disabled = true;
+                    sendBtn.disabled = true;
+                    stopHeartbeat(); // 断开连接时停止心跳
+                    
+                    if (event.wasClean) {
+                        addMessage(`连接正常关闭 (code=${event.code} reason=${event.reason})`, 'info');
+                    } else {
+                        addMessage('连接异常断开', 'error');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    isConnecting = false;
+                    addMessage('WebSocket 连接错误', 'error');
+                    console.error('WebSocket error:', error);
+                };
+                
+            } catch (error) {
+                isConnecting = false;
+                updateStatus('连接失败', 'disconnected');
+                connectBtn.disabled = false;
+                addMessage(`连接失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) {
+                addMessage('请输入要发送的消息', 'error');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('WebSocket 未连接', 'error');
+                return;
+            }
+            
+            // 发送消息前先打断当前音频播放
+            if (isAutoPlaying && audioAutoPlayEnabled) {
+                addMessage('💬 发送文本消息，打断当前音频播放', 'info');
+                interruptCurrentAudio();
+            }
+            
+            try {
+                const textMessage = {
+                    type: 'text',
+                    data: message
+                };
+                
+                ws.send(JSON.stringify(textMessage));
+                
+                const contentDiv = document.createElement('span');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = message;
+                addMessage('发送文本:', 'sent', contentDiv);
+                messageInput.value = '';
+            } catch (error) {
+                addMessage(`发送失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearMessages() {
+            messagesDiv.innerHTML = '';
+        }
+        
+        // 音频处理相关功能
+        async function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+        }
+        
+        function getCompressionSettings() {
+            const settings = {
+                sampleRate: 16000,
+                audioBitsPerSecond: 128000,
+                mimeType: 'audio/webm;codecs=opus'  // 使用webm录制，后续转换为mpga
+            };
+            
+            switch (compressionLevel) {
+                case 'high':
+                    settings.sampleRate = 48000;
+                    settings.audioBitsPerSecond = 256000;
+                    break;
+                case 'medium':
+                    settings.sampleRate = 22050;
+                    settings.audioBitsPerSecond = 128000;
+                    break;
+                case 'low':
+                    settings.sampleRate = 16000;
+                    settings.audioBitsPerSecond = 64000;
+                    break;
+            }
+            
+            return settings;
+        }
+        
+        async function processAudio(audioBuffer) {
+            if (!processingEnabled || !audioContext) {
+                return audioBuffer;
+            }
+            
+            try {
+                // 创建 AudioBuffer
+                const arrayBuffer = await audioBuffer.arrayBuffer();
+                const decodedAudio = await audioContext.decodeAudioData(arrayBuffer.slice());
+                
+                // 调整播放速度
+                if (playbackSpeed !== 1.0) {
+                    const processedBuffer = await changeAudioSpeed(decodedAudio, playbackSpeed);
+                    return await audioBufferToBlob(processedBuffer);
+                }
+                
+                return audioBuffer;
+            } catch (error) {
+                console.error('音频处理错误:', error);
+                addMessage(`音频处理失败: ${error.message}`, 'error');
+                return audioBuffer;
+            }
+        }
+        
+        async function changeAudioSpeed(audioBuffer, speed) {
+            const offlineContext = new OfflineAudioContext(
+                audioBuffer.numberOfChannels,
+                Math.floor(audioBuffer.length / speed),
+                audioBuffer.sampleRate
+            );
+            
+            const source = offlineContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.playbackRate.value = speed;
+            source.connect(offlineContext.destination);
+            
+            source.start(0);
+            return await offlineContext.startRendering();
+        }
+        
+        async function audioBufferToBlob(audioBuffer) {
+            const numberOfChannels = audioBuffer.numberOfChannels;
+            const sampleRate = audioBuffer.sampleRate;
+            const length = audioBuffer.length;
+            
+            // 创建 WAV 格式的 Blob
+            const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2);
+            const view = new DataView(arrayBuffer);
+            
+            // WAV 文件头
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+            
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + length * numberOfChannels * 2, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numberOfChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numberOfChannels * 2, true);
+            view.setUint16(32, numberOfChannels * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, length * numberOfChannels * 2, true);
+            
+            // 写入音频数据
+            let offset = 44;
+            for (let i = 0; i < length; i++) {
+                for (let channel = 0; channel < numberOfChannels; channel++) {
+                    const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(channel)[i]));
+                    view.setInt16(offset, sample * 0x7FFF, true);
+                    offset += 2;
+                }
+            }
+            
+            return new Blob([arrayBuffer], { type: 'audio/wav' });
+        }
+        
+        function updateSpeedValue() {
+            playbackSpeed = parseFloat(speedSlider.value);
+            speedValue.textContent = playbackSpeed.toFixed(1) + 'x';
+        }
+        
+        function updateCompressionLevel() {
+            compressionLevel = compressionLevelSelect.value;
+            addMessage(`音质压缩设置: ${compressionLevel}`, 'info');
+        }
+        
+        // 降噪相关功能
+        function updateVolumeThreshold() {
+            volumeThreshold = parseFloat(volumeThresholdSlider.value);
+            volumeThresholdValue.textContent = volumeThreshold.toFixed(2);
+        }
+        
+        function updateNoiseSettings() {
+            noiseSuppressionEnabled = noiseSuppressionCheckbox.checked;
+            echoCancellationEnabled = echoCancellationCheckbox.checked;
+            autoGainControlEnabled = autoGainControlCheckbox.checked;
+            highpassFilterEnabled = highpassFilterCheckbox.checked;
+            volumeGateEnabled = volumeGateCheckbox.checked;
+            
+            // 启用/禁用音量阈值滑块
+            volumeThresholdSlider.disabled = !volumeGateEnabled;
+            
+            const settings = [];
+            if (noiseSuppressionEnabled) settings.push('噪声抑制');
+            if (echoCancellationEnabled) settings.push('回声消除');
+            if (autoGainControlEnabled) settings.push('自动增益');
+            if (highpassFilterEnabled) settings.push('高通滤波');
+            if (volumeGateEnabled) settings.push(`音量门限(${volumeThreshold.toFixed(2)})`);
+            
+            addMessage(`🔇 降噪设置已更新: ${settings.join(', ') || '无'}`, 'info');
+        }
+        
+        async function applyNoiseSettings() {
+            if (mediaStream) {
+                // 重新初始化麦克风以应用新的降噪设置
+                addMessage('🔄 重新初始化麦克风以应用降噪设置...', 'info');
+                
+                // 停止当前流
+                mediaStream.getTracks().forEach(track => track.stop());
+                
+                // 重新获取麦克风
+                await initMicrophone();
+            } else {
+                addMessage('⚠️ 请先连接WebSocket以初始化麦克风', 'info');
+            }
+        }
+        
+        function toggleProcessing() {
+            processingEnabled = enableProcessingCheckbox.checked;
+            testPlaybackBtn.disabled = !processingEnabled || !lastRecordedAudio;
+            
+            if (processingEnabled) {
+                initAudioContext();
+                addMessage('音频处理已启用', 'info');
+            } else {
+                addMessage('音频处理已禁用', 'info');
+            }
+        }
+        
+        async function testPlayback() {
+            if (!lastRecordedAudio || !processingEnabled) {
+                addMessage('没有可测试的音频或音频处理未启用', 'error');
+                return;
+            }
+            
+            try {
+                const processedAudio = await processAudio(lastRecordedAudio);
+                const audioUrl = URL.createObjectURL(processedAudio);
+                const audio = new Audio(audioUrl);
+                
+                audio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                };
+                
+                await audio.play();
+                addMessage(`播放处理后的音频 (语速: ${playbackSpeed}x, 压缩: ${compressionLevel})`, 'info');
+            } catch (error) {
+                addMessage(`测试播放失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 测试降噪效果
+        async function testNoiseReduction() {
+            if (!mediaStream) {
+                addMessage('请先初始化麦克风', 'error');
+                return;
+            }
+            
+            try {
+                addMessage('🎤 开始5秒降噪测试录音...', 'info');
+                testNoiseReductionBtn.disabled = true;
+                testNoiseReductionBtn.textContent = '🔴 录音中...';
+                
+                // 创建MediaRecorder进行测试录音
+                const { mimeType, recordingFormat, outputFormat, audioBitsPerSecond } = getAudioMimeType();
+                const testRecorder = new MediaRecorder(mediaStream, {
+                    mimeType: mimeType,
+                    audioBitsPerSecond: audioBitsPerSecond
+                });
+                
+                const testChunks = [];
+                testRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        testChunks.push(event.data);
+                    }
+                };
+                
+                testRecorder.onstop = function() {
+                    const testBlob = new Blob(testChunks, { type: mimeType });
+                    const audioUrl = URL.createObjectURL(testBlob);
+                    const audio = new Audio(audioUrl);
+                    
+                    audio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    
+                    audio.play();
+                    
+                    const appliedSettings = [];
+                    if (noiseSuppressionEnabled) appliedSettings.push('噪声抑制');
+                    if (echoCancellationEnabled) appliedSettings.push('回声消除');
+                    if (autoGainControlEnabled) appliedSettings.push('自动增益');
+                    if (highpassFilterEnabled) appliedSettings.push('高通滤波');
+                    if (volumeGateEnabled) appliedSettings.push('音量门限');
+                    
+                    addMessage(`🔊 降噪测试完成，正在播放结果 (应用设置: ${appliedSettings.join(', ')})`, 'info');
+                    testNoiseReductionBtn.disabled = false;
+                    testNoiseReductionBtn.textContent = '🎤 测试降噪效果';
+                };
+                
+                testRecorder.start();
+                
+                // 5秒后停止录音
+                setTimeout(() => {
+                    testRecorder.stop();
+                }, 5000);
+                
+            } catch (error) {
+                addMessage(`降噪测试失败: ${error.message}`, 'error');
+                testNoiseReductionBtn.disabled = false;
+                testNoiseReductionBtn.textContent = '🎤 测试降噪效果';
+            }
+        }
+        
+        // 语音控制相关功能
+        function updateVoiceStatus(status, className) {
+            voiceStatus.textContent = status;
+            voiceStatus.className = `voice-status ${className}`;
+        }
+        
+        function updateVoiceButton(text, className) {
+            voiceToggleBtn.textContent = text;
+            voiceToggleBtn.className = `btn-voice-toggle ${className}`;
+        }
+        
+        async function initVAD() {
+            try {
+                addMessage('正在初始化语音检测...', 'info');
+                
+                vad = await window.vad.MicVAD.new({
+                    onSpeechStart: () => {
+                        if (vadListening && !isRecording) {
+                            addMessage('🎤 检测到语音，开始录音', 'info');
+                            updateVoiceStatus('正在说话', 'speaking');
+                            updateVoiceButton('🔴 正在录音', 'speaking');
+                            startRecording();
+                        }
+                    },
+                    onSpeechEnd: (audio) => {
+                        if (vadListening && isRecording) {
+                            addMessage('🔇 语音结束，自动发送', 'info');
+                            updateVoiceStatus('监听中', 'listening');
+                            updateVoiceButton('🎤 监听中', 'listening');
+                            stopRecording();
+                            
+                            // 等待录音处理完成后自动发送
+                            setTimeout(() => {
+                                if (audioBlob) {
+                                    sendAudioFile();
+                                }
+                            }, 100);
+                        }
+                    },
+                    onVADMisfire: () => {
+                        if (vadListening) {
+                            addMessage('⚠️ 语音误触发', 'info');
+                            
+                            // 如果当前正在录音，停止录音并重置UI状态
+                            if (isRecording) {
+                                stopRecording();
+                                updateVoiceStatus('监听中', 'listening');
+                                updateVoiceButton('🎤 监听中', 'listening');
+                                addMessage('🔄 已重置录音状态', 'info');
+                            }
+                        }
+                    },
+                    positiveSpeechThreshold: 0.5,
+                    negativeSpeechThreshold: 0.35,
+                    redemptionFrames: 8,
+                    frameSamples: 1536,
+                    preSpeechPadFrames: 1,
+                    minSpeechFrames: 4,
+                    workletURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/vad.worklet.bundle.min.js',
+                    modelURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/silero_vad.onnx'
+                });
+                
+                vadEnabled = true;
+                voiceToggleBtn.disabled = false;
+                updateVoiceButton('🎤 启用语音', '');
+                updateVoiceStatus('语音已准备', 'ready');
+                voiceInfo.textContent = '点击启用语音后，说话时会自动录音并发送';
+                addMessage('✅ 语音检测初始化完成', 'info');
+                
+            } catch (error) {
+                addMessage(`❌ 语音检测初始化失败: ${error.message}`, 'error');
+                updateVoiceStatus('初始化失败', 'disabled');
+                voiceInfo.textContent = '语音检测初始化失败，请刷新页面重试';
+                console.error('VAD init error:', error);
+            }
+        }
+        
+        function toggleVoice() {
+            if (!vad) return;
+            
+            if (vadListening) {
+                vad.pause();
+                vadListening = false;
+                updateVoiceButton('🎤 启用语音', '');
+                updateVoiceStatus('语音已停用', 'disabled');
+                voiceInfo.textContent = '点击启用语音后，说话时会自动录音并发送';
+                addMessage('语音功能已停用', 'info');
+            } else {
+                vad.start();
+                vadListening = true;
+                updateVoiceButton('🎤 监听中', 'listening');
+                updateVoiceStatus('监听中', 'listening');
+                voiceInfo.textContent = '正在监听语音，开始说话时会自动录音';
+                addMessage('语音功能已启用，正在监听...', 'info');
+            }
+        }
+        
+        // 音频录制功能
+        async function initMicrophone() {
+            try {
+                const audioConstraints = {
+                    echoCancellation: echoCancellationEnabled,
+                    noiseSuppression: noiseSuppressionEnabled,
+                    autoGainControl: autoGainControlEnabled,
+                    sampleRate: 48000,
+                    sampleSize: 16,
+                    channelCount: 1
+                };
+                
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: audioConstraints
+                });
+                
+                // 如果启用了额外的音频处理，创建音频处理链
+                if (highpassFilterEnabled || volumeGateEnabled) {
+                    mediaStream = await createAudioProcessingChain(mediaStream);
+                }
+                
+                const appliedSettings = [];
+                if (echoCancellationEnabled) appliedSettings.push('回声消除');
+                if (noiseSuppressionEnabled) appliedSettings.push('噪声抑制');
+                if (autoGainControlEnabled) appliedSettings.push('自动增益');
+                if (highpassFilterEnabled) appliedSettings.push('高通滤波');
+                if (volumeGateEnabled) appliedSettings.push('音量门限');
+                
+                addMessage(`🎤 麦克风已初始化，降噪设置: ${appliedSettings.join(', ')}`, 'info');
+                
+                // 启用测试降噪按钮
+                testNoiseReductionBtn.disabled = false;
+                
+                // 初始化语音检测
+                await initVAD();
+                return true;
+            } catch (error) {
+                addMessage(`麦克风权限获取失败: ${error.message}`, 'error');
+                updateVoiceStatus('权限拒绝', 'disabled');
+                voiceInfo.textContent = '无法获取麦克风权限，请允许麦克风访问';
+                testNoiseReductionBtn.disabled = true;
+                return false;
+            }
+        }
+        
+        // 创建音频处理链
+        async function createAudioProcessingChain(inputStream) {
+            try {
+                await initAudioContext();
+                
+                const source = audioContext.createMediaStreamSource(inputStream);
+                const destination = audioContext.createMediaStreamDestination();
+                
+                let currentNode = source;
+                
+                // 高通滤波器 - 去除低频噪音 (< 80Hz)
+                if (highpassFilterEnabled) {
+                    const highpassFilter = audioContext.createBiquadFilter();
+                    highpassFilter.type = 'highpass';
+                    highpassFilter.frequency.value = 80; // 80Hz cutoff
+                    highpassFilter.Q.value = 1;
+                    
+                    currentNode.connect(highpassFilter);
+                    currentNode = highpassFilter;
+                    addMessage('🔊 已应用高通滤波器 (80Hz)', 'info');
+                }
+                
+                // 音量门限 - 只通过超过阈值的音频
+                if (volumeGateEnabled) {
+                    const gainNode = audioContext.createGain();
+                    const analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    
+                    currentNode.connect(analyser);
+                    analyser.connect(gainNode);
+                    currentNode = gainNode;
+                    
+                    // 实时监控音量并控制增益
+                    setInterval(() => {
+                        analyser.getByteFrequencyData(dataArray);
+                        const volume = dataArray.reduce((a, b) => a + b) / dataArray.length / 255;
+                        
+                        if (volume < volumeThreshold) {
+                            gainNode.gain.value = 0; // 静音
+                        } else {
+                            gainNode.gain.value = 1; // 正常音量
+                        }
+                    }, 10);
+                    
+                    addMessage(`🎚️ 已应用音量门限 (阈值: ${volumeThreshold.toFixed(2)})`, 'info');
+                }
+                
+                currentNode.connect(destination);
+                
+                // 返回处理后的媒体流
+                return destination.stream;
+                
+            } catch (error) {
+                addMessage(`音频处理链创建失败: ${error.message}`, 'error');
+                return inputStream; // 回退到原始流
+            }
+        }
+        
+        function getAudioMimeType() {
+            const settings = getCompressionSettings();
+            
+            // 检查浏览器支持的音频格式
+            const supportedFormats = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/wav',
+                'audio/mp4',
+                'audio/mpeg'
+            ];
+            
+            let selectedMimeType = settings.mimeType;
+            let recordingFormat = 'webm';
+            
+            // 找到第一个支持的格式用于录制
+            for (const format of supportedFormats) {
+                if (MediaRecorder.isTypeSupported(format)) {
+                    selectedMimeType = format;
+                    if (format.includes('webm')) {
+                        recordingFormat = 'webm';
+                    } else if (format.includes('wav')) {
+                        recordingFormat = 'wav';
+                    } else if (format.includes('mp4')) {
+                        recordingFormat = 'mp4';
+                    } else if (format.includes('mpeg')) {
+                        recordingFormat = 'mpga';
+                    }
+                    break;
+                }
+            }
+            
+            return {
+                mimeType: selectedMimeType,
+                recordingFormat: recordingFormat,  // 实际录制格式
+                outputFormat: 'mpga',              // 声明的输出格式
+                audioBitsPerSecond: settings.audioBitsPerSecond
+            };
+        }
+        
+        function startRecording() {
+            if (!mediaStream || isRecording) return;
+            
+            const { mimeType, recordingFormat, outputFormat, audioBitsPerSecond } = getAudioMimeType();
+            
+            // 检查浏览器是否支持该格式
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                addMessage(`不支持的音频格式: ${mimeType}`, 'error');
+                return;
+            }
+            
+            addMessage(`录制格式: ${recordingFormat} (${mimeType})，输出格式: ${outputFormat}`, 'info');
+            
+            audioChunks = [];
+            
+            try {
+                mediaRecorder = new MediaRecorder(mediaStream, {
+                    mimeType: mimeType,
+                    audioBitsPerSecond: audioBitsPerSecond
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = function() {
+                    audioBlob = new Blob(audioChunks, { type: mimeType });
+                    lastRecordedAudio = audioBlob; // 保存最后录制的音频
+                    
+                    // 启用测试播放按钮（如果音频处理已启用）
+                    testPlaybackBtn.disabled = !processingEnabled;
+                    
+                    addMessage(`录音完成，大小: ${(audioBlob.size / 1024).toFixed(1)}KB`, 'info');
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                addMessage('开始录音', 'info');
+                
+            } catch (error) {
+                addMessage(`录音启动失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function stopRecording() {
+            if (!mediaRecorder || !isRecording) return;
+            
+            mediaRecorder.stop();
+            isRecording = false;
+        }
+        
+
+        
+        async function sendAudioFile() {
+            if (!audioBlob) {
+                addMessage('没有可发送的录音文件', 'error');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('WebSocket 未连接', 'error');
+                return;
+            }
+            
+            // 发送音频前先打断当前音频播放
+            if (isAutoPlaying && audioAutoPlayEnabled) {
+                addMessage('🎤 发送音频消息，打断当前音频播放', 'info');
+                interruptCurrentAudio();
+            }
+            
+            try {
+                let finalAudioBlob = audioBlob;
+                
+                // 如果启用了音频处理，先处理音频
+                if (processingEnabled) {
+                    addMessage(`正在处理音频 (语速: ${playbackSpeed}x, 压缩: ${compressionLevel})...`, 'info');
+                    finalAudioBlob = await processAudio(audioBlob);
+                }
+                
+                // 发送 Base64 编码的音频数据
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const base64Data = reader.result.split(',')[1]; // 移除 data:audio/xxx;base64, 前缀
+                    const { outputFormat } = getAudioMimeType();
+                    const audioMessage = {
+                        type: 'audio',
+                        format: processingEnabled ? 'wav' : outputFormat,  // 始终声明为mpga（除非经过处理变成wav）
+                        size: finalAudioBlob.size,
+                        speed: processingEnabled ? playbackSpeed : 1.0,
+                        compression: compressionLevel,
+                        processed: processingEnabled,
+                        data: base64Data
+                    };
+                    
+                    ws.send(JSON.stringify(audioMessage));
+                    
+                    // 为发送的音频创建播放按钮
+                    const audioPlayer = createAudioPlayer(
+                        base64Data, 
+                        audioMessage.format, 
+                        finalAudioBlob.size,
+                        undefined, // chunkId
+                        undefined  // messageId (发送的音频没有messageId)
+                    );
+                    addMessage('发送音频:', 'sent', audioPlayer);
+                    
+                    // 发送成功后清空录音状态
+                    audioBlob = null;
+                };
+                reader.readAsDataURL(finalAudioBlob);
+                
+                // 方式2: 直接发送二进制数据 (注释掉，可根据需要启用)
+                // ws.send(audioBlob);
+                // addMessage(`发送音频文件 (二进制): ${(audioBlob.size / 1024).toFixed(1)}KB`, 'sent');
+                
+            } catch (error) {
+                addMessage(`发送音频失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 心跳机制
+        function startHeartbeat() {
+            // 每30秒发送一次ping
+            pingInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    lastPingTime = Date.now();
+                    const pingMessage = { 
+                        type: 'ping',
+                        timestamp: lastPingTime
+                    };
+                    ws.send(JSON.stringify(pingMessage));
+                    addMessage('发送心跳 ping', 'info');
+                    
+                    // 检查连接状态
+                    checkConnectionHealth();
+                } else {
+                    stopHeartbeat();
+                }
+            }, 30000);
+            
+            addMessage('心跳机制已启动 (30秒间隔)', 'info');
+        }
+        
+        function stopHeartbeat() {
+            if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+                lastPongTime = null;
+                lastPingTime = null;
+                addMessage('心跳机制已停止', 'info');
+            }
+        }
+        
+        function checkConnectionHealth() {
+            const now = Date.now();
+            if (lastPongTime && (now - lastPongTime) > 60000) {
+                addMessage('⚠️ 连接可能不稳定，超过60秒未收到pong', 'error');
+                updateStatus('连接不稳定', 'connecting');
+            }
+        }
+        
+        function handlePongMessage(pongData) {
+            lastPongTime = Date.now();
+            let latencyText = '';
+            
+            if (lastPingTime) {
+                const latency = lastPongTime - lastPingTime;
+                latencyText = ` (延迟: ${latency}ms)`;
+            }
+            
+            addMessage(`收到心跳 pong${latencyText}`, 'info');
+            
+            if (connectionStatus !== 'connected') {
+                updateStatus('已连接', 'connected');
+            }
+        }
+        
+        // 折叠控制功能
+        function initCollapsibleControls() {
+            const headers = ['audioProcessingHeader', 'noiseReductionHeader'];
+            const contents = ['audioProcessingContent', 'noiseReductionContent'];
+            
+            headers.forEach((headerId, index) => {
+                const header = document.getElementById(headerId);
+                const content = document.getElementById(contents[index]);
+                const icon = header.querySelector('.collapsible-icon');
+                
+                header.addEventListener('click', function() {
+                    const isExpanded = content.classList.contains('expanded');
+                    
+                    if (isExpanded) {
+                        // 折叠
+                        content.classList.remove('expanded');
+                        icon.classList.remove('expanded');
+                        icon.textContent = '▶';
+                    } else {
+                        // 展开
+                        content.classList.add('expanded');
+                        icon.classList.add('expanded');
+                        icon.textContent = '▼';
+                    }
+                });
+            });
+        }
+        
+        // 事件监听器
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        sendBtn.addEventListener('click', sendMessage);
+        clearBtn.addEventListener('click', clearMessages);
+        
+        // 语音控制事件监听器
+        voiceToggleBtn.addEventListener('click', toggleVoice);
+        
+        // 音频处理事件监听器
+        speedSlider.addEventListener('input', updateSpeedValue);
+        compressionLevelSelect.addEventListener('change', updateCompressionLevel);
+        enableProcessingCheckbox.addEventListener('change', toggleProcessing);
+        testPlaybackBtn.addEventListener('click', testPlayback);
+        
+        // 自动播放控制事件监听器
+        toggleAutoPlayBtn.addEventListener('click', toggleAutoPlay);
+        stopAutoPlayBtn.addEventListener('click', stopAutoPlay);
+        
+        // 降噪控制事件监听器
+        noiseSuppressionCheckbox.addEventListener('change', updateNoiseSettings);
+        echoCancellationCheckbox.addEventListener('change', updateNoiseSettings);
+        autoGainControlCheckbox.addEventListener('change', updateNoiseSettings);
+        highpassFilterCheckbox.addEventListener('change', updateNoiseSettings);
+        volumeGateCheckbox.addEventListener('change', updateNoiseSettings);
+        volumeThresholdSlider.addEventListener('input', updateVolumeThreshold);
+        applyNoiseSettingsBtn.addEventListener('click', applyNoiseSettings);
+        testNoiseReductionBtn.addEventListener('click', testNoiseReduction);
+        
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        wsUrlInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                connect();
+            }
+        });
+        
+        // 页面加载完成后添加欢迎消息
+        window.addEventListener('load', function() {
+            addMessage('WebSocket 调试工具已准备就绪', 'info');
+            addMessage('请输入 WebSocket 服务器地址并点击连接', 'info');
+            addMessage('💡 提示: 连接成功后将自动初始化语音功能', 'info');
+            addMessage('⚙️ 高级设置: 点击展开音频处理和降噪选项', 'info');
+            addMessage('🔊 自动播放功能已启用，收到音频消息时会自动按顺序播放', 'info');
+            
+            // 检查并显示支持的音频格式
+            const { recordingFormat, outputFormat, mimeType } = getAudioMimeType();
+            addMessage(`🎤 录制格式: ${recordingFormat} (${mimeType})，输出格式: ${outputFormat}`, 'info');
+            
+            // 显示浏览器支持的格式（调试信息）
+            const testFormats = ['audio/webm;codecs=opus', 'audio/webm', 'audio/wav', 'audio/mp4', 'audio/mpeg'];
+            const supportedList = testFormats.filter(format => MediaRecorder.isTypeSupported(format));
+            addMessage(`📋 浏览器支持的格式: ${supportedList.join(', ') || '无'}`, 'info');
+            
+            // 初始化音频处理状态
+            updateSpeedValue();
+            updateCompressionLevel();
+            
+            // 初始化降噪设置
+            updateVolumeThreshold();
+            updateNoiseSettings();
+            
+            // 初始化折叠控制
+            initCollapsibleControls();
+        });
+    </script>
+</body>
+</html>

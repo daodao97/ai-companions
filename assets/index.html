@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+
+<body>
+    <div class="loading" id="loading">Loading...</div>
+
+    <!-- 顶部状态栏 -->
+    <div class="top-bar">
+        <div class="top-left">
+            <svg class="menu-icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
+            </svg>
+            <span id="current-time">18:17</span>
+        </div>
+        <button class="capture-btn" onclick="captureScreen()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 1L9 4H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-4L12 1z" />
+            </svg>
+            Capture
+        </button>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <!-- 底部控制面板 -->
+    <div class="bottom-controls">
+        <div class="control-buttons">
+            <!-- 摄像头切换 -->
+            <button class="control-btn" onclick="toggleCamera()" title="切换摄像头">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" />
+                </svg>
+            </button>
+
+            <!-- 音量控制 -->
+            <button class="control-btn" id="volumeBtn" onclick="toggleVolume()" title="开启/关闭音频播放">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                </svg>
+            </button>
+
+            <!-- 麦克风 -->
+            <button class="control-btn" id="micBtn" onclick="toggleMic()" title="开启/停止语音录音">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="input-area">
+            <input type="text" class="chat-input" placeholder="畅所欲问" id="chatInput" disabled>
+            <button id="startStopBtn" class="start-btn">Start</button>
+        </div>
+    </div>
+
+    <!-- 隐藏的原控制按钮 -->
+    <div class="controls">
+        <button onclick="toggleModel()">切换模型</button>
+        <button onclick="playRandomMotion()">随机动作</button>
+        <button onclick="resetPosition()">重置位置</button>
+    </div>
+
+    <!-- Live2D 相关库 -->
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.2/dist/browser/pixi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js"></script>
+
+    <!-- WebSocket 和 VAD 相关库 -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+    <script src="/static/websocket-manager.js"></script>
+    {{if .IsDev}}
+    <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+    <script>
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+            var vConsole = new window.VConsole();
+        }
+    </script>
+    {{end}}
+
+    <script>
+        // Live2D 模型资源
+        const cubism2Model = "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/shizuku/shizuku.model.json";
+        const cubism4Model = "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display/test/assets/haru/haru_greeter_t03.model3.json";
+
+        let app;
+        let currentModel;
+        let models = [];
+        let currentModelIndex = 0;
+
+        // 初始化应用
+        (async function main() {
+            try {
+                // 创建 PIXI 应用
+                app = new PIXI.Application({
+                    view: document.getElementById("canvas"),
+                    autoStart: true,
+                    resizeTo: window,
+                    backgroundAlpha: 0, // 透明背景
+                    antialias: true,
+                    resolution: window.devicePixelRatio || 1
+                });
+
+                // 加载模型
+                console.log("开始加载 Live2D 模型...");
+
+                const model2 = await PIXI.live2d.Live2DModel.from(cubism2Model);
+                const model4 = await PIXI.live2d.Live2DModel.from(cubism4Model);
+
+                models = [model2, model4];
+
+                // 设置模型属性
+                setupModel(model2);
+                setupModel(model4);
+
+                // 默认显示第一个模型
+                showModel(0);
+
+                // 隐藏加载提示
+                document.getElementById('loading').style.display = 'none';
+
+                console.log("Live2D 模型加载完成");
+
+                // 添加交互事件
+                setupInteractions();
+
+            } catch (error) {
+                console.error("Live2D 模型加载失败:", error);
+                document.getElementById('loading').textContent = "模型加载失败";
+            }
+        })();
+
+        // 设置模型基本属性
+        function setupModel(model) {
+            // 先设置一个临时缩放来获取模型的实际尺寸
+            model.scale.set(1);
+
+            // 居中显示
+            model.anchor.set(0.5, 0.5);
+            model.x = app.screen.width / 2;
+            model.y = app.screen.height / 2;
+
+            // 获取模型的边界框
+            const bounds = model.getBounds();
+
+            // 计算有效显示区域，在宽屏幕上限制模型容器宽度
+            let effectiveWidth = app.screen.width;
+            const aspectRatio = app.screen.width / app.screen.height;
+
+            // 如果屏幕宽高比大于1.5（宽屏），限制模型显示宽度
+            if (aspectRatio > 1.5) {
+                // 限制模型显示宽度为屏幕高度的1.2倍，保持竖向比例协调
+                effectiveWidth = Math.min(app.screen.width, app.screen.height * 1.2);
+            }
+
+            // 计算缩放比例，保留适当边距
+            const scaleX = (effectiveWidth * 0.7) / bounds.width;
+            const scaleY = (app.screen.height * 0.7) / bounds.height;
+            const scale = Math.max(scaleX, scaleY);
+
+            model.scale.set(scale);
+
+            // 添加交互性
+            model.interactive = true;
+            model.buttonMode = true;
+
+            // 点击事件
+            model.on('pointerdown', () => {
+                playRandomMotion();
+            });
+
+            // 鼠标跟随
+            model.on('pointermove', (event) => {
+                if (model.internalModel) {
+                    const point = event.data.global;
+                    const modelPoint = model.toLocal(point);
+
+                    // 设置视线跟随
+                    if (model.internalModel.focusController) {
+                        model.internalModel.focusController.focus(
+                            modelPoint.x / model.width,
+                            modelPoint.y / model.height
+                        );
+                    }
+                }
+            });
+        }
+
+        // 显示指定模型
+        function showModel(index) {
+            // 隐藏所有模型
+            models.forEach(model => {
+                if (app.stage.children.includes(model)) {
+                    app.stage.removeChild(model);
+                }
+            });
+
+            // 显示当前模型
+            currentModel = models[index];
+            app.stage.addChild(currentModel);
+            currentModelIndex = index;
+
+            // 重新调整位置和大小
+            setupModel(currentModel);
+        }
+
+        // 切换模型
+        function toggleModel() {
+            const nextIndex = (currentModelIndex + 1) % models.length;
+            showModel(nextIndex);
+        }
+
+        // 播放随机动作
+        function playRandomMotion() {
+            if (currentModel && currentModel.internalModel) {
+                try {
+                    // 尝试播放随机动作
+                    const motionManager = currentModel.internalModel.motionManager;
+                    if (motionManager && motionManager.groups) {
+                        const groups = Object.keys(motionManager.groups);
+                        if (groups.length > 0) {
+                            const randomGroup = groups[Math.floor(Math.random() * groups.length)];
+                            currentModel.motion(randomGroup);
+                        }
+                    }
+                } catch (error) {
+                    console.log("播放动作失败:", error);
+                }
+            }
+        }
+
+        // 重置位置
+        function resetPosition() {
+            if (currentModel) {
+                setupModel(currentModel);
+            }
+        }
+
+        // 设置交互
+        function setupInteractions() {
+            // 窗口大小变化时重新调整
+            window.addEventListener('resize', () => {
+                if (currentModel) {
+                    setupModel(currentModel);
+                }
+            });
+        }
+
+        // 禁用右键菜单
+        document.addEventListener('contextmenu', event => {
+            event.preventDefault();
+        });
+
+        // 状态管理
+        let isVolumeOn = true;
+        let isMicOn = true;
+        let isCameraOn = true;
+        let wsManager = null;
+
+        // 新增控制函数
+        function updateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+            document.getElementById('current-time').textContent = timeString;
+        }
+
+        function captureScreen() {
+            console.log("截屏功能");
+            // 可以实现截屏功能
+            if (app && app.view) {
+                const link = document.createElement('a');
+                link.download = `companion_capture_${Date.now()}.png`;
+                link.href = app.view.toDataURL();
+                link.click();
+            }
+        }
+
+        function toggleCamera() {
+            isCameraOn = !isCameraOn;
+            const btn = event.target.closest('.control-btn');
+            if (isCameraOn) {
+                btn.classList.remove('active');
+                console.log("摄像头已开启");
+            } else {
+                btn.classList.add('active');
+                console.log("摄像头已关闭");
+            }
+        }
+
+        function toggleVolume() {
+            isVolumeOn = !isVolumeOn;
+            const btn = document.getElementById('volumeBtn');
+            const svg = btn.querySelector('svg');
+
+            if (isVolumeOn) {
+                // 音量开启
+                btn.classList.remove('active');
+                svg.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+                console.log("🔊 音量已开启");
+                showNotification('🔊 音量已开启，音频播放已恢复', 'info');
+
+                // 恢复自动播放功能
+                if (wsManager) {
+                    wsManager.audioAutoPlayEnabled = true;
+                }
+
+            } else {
+                // 音量关闭（静音）
+                btn.classList.add('active');
+                svg.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+                console.log("🔇 音量已关闭");
+                showNotification('🔇 音量已关闭，已停止音频播放', 'info');
+
+                // 停止当前播放的音频
+                if (wsManager) {
+                    wsManager.stopAllAudio();
+                    wsManager.audioAutoPlayEnabled = false;
+                }
+
+                // 同时静音所有页面音频元素
+                const audioElements = document.querySelectorAll('audio');
+                audioElements.forEach(audio => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                });
+            }
+        }
+
+        function toggleMic() {
+            const btn = document.getElementById('micBtn');
+            const svg = btn.querySelector('svg');
+
+            // 检查WebSocket管理器和VAD状态
+            if (!wsManager || !wsManager.vadEnabled) {
+                showNotification('请先连接AI服务并等待语音功能初始化', 'error');
+                return;
+            }
+
+            // 切换VAD监听状态
+            const wasListening = wsManager.vadListening;
+            const toggleResult = wsManager.toggleVAD();
+
+            if (toggleResult !== wasListening) {
+                // 状态成功切换
+                if (wsManager.vadListening) {
+                    // 现在正在监听
+                    btn.classList.remove('active');
+                    svg.innerHTML = '<path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>';
+                    console.log("🎤 语音录音已启用");
+                    showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
+
+                    // 触发Live2D模型动作作为反馈
+                    playRandomMotion();
+                } else {
+                    // 现在已停止监听
+                    btn.classList.add('active');
+                    svg.innerHTML = '<path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>';
+                    console.log("🔇 语音录音已停用");
+                    showNotification('🔇 语音录音已停用', 'info');
+                }
+
+                // 同步更新所有相关UI
+                syncVoiceStatusUI();
+
+                // 更新内部状态变量
+                isMicOn = wsManager.vadListening;
+            } else {
+                console.error("❌ 语音状态切换失败");
+                showNotification('语音状态切换失败', 'error');
+            }
+        }
+
+        function stopAction() {
+            console.log("停止操作");
+            // 可以实现停止当前动作或对话
+            if (currentModel && currentModel.internalModel) {
+                // 停止当前动作
+                try {
+                    currentModel.internalModel.motionManager.stopAllMotions();
+                } catch (error) {
+                    console.log("停止动作失败:", error);
+                }
+            }
+        }
+
+        // ===== Start/Stop按钮控制函数 =====
+        async function toggleConnection() {
+            const btn = document.getElementById('startStopBtn');
+            const chatInput = document.getElementById('chatInput');
+
+            if (!wsManager) {
+                initWebSocketManager();
+            }
+
+            const isConnected = wsManager.isConnected();
+            const isConnecting = wsManager.isConnecting;
+
+            if (isConnected) {
+                // 当前已连接，点击断开
+                wsManager.disconnect();
+                updateStartStopButton('disconnected');
+                chatInput.disabled = true;
+                console.log('🔌 断开WebSocket连接');
+
+            } else if (isConnecting) {
+                // 当前正在连接，点击取消
+                wsManager.disconnect();
+                updateStartStopButton('disconnected');
+                chatInput.disabled = true;
+                console.log('❌ 取消WebSocket连接');
+
+            } else {
+                // 当前未连接，点击连接
+                console.log('📱 检测设备类型:', /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? '移动端' : '桌面端');
+                
+                updateStartStopButton('connecting');
+                
+                try {
+                    // 直接尝试连接，让WebSocket管理器处理麦克风权限
+                    const connected = await wsManager.connect();
+                    if (!connected) {
+                        updateStartStopButton('error');
+                        showNotification('连接失败，请检查网络或服务器状态', 'error');
+                    } else {
+                        console.log('🚀 启动WebSocket连接');
+                    }
+                } catch (error) {
+                    console.error('❌ 连接过程中发生错误:', error);
+                    updateStartStopButton('error');
+                    showNotification('连接失败: ' + error.message, 'error');
+                }
+            }
+        }
+
+        function updateStartStopButton(status) {
+            const btn = document.getElementById('startStopBtn');
+            const chatInput = document.getElementById('chatInput');
+
+            // 清除所有状态类
+            btn.className = 'start-btn';
+
+            switch (status) {
+                case 'disconnected':
+                    btn.textContent = 'Start';
+                    btn.disabled = false;
+                    chatInput.disabled = true;
+                    break;
+
+                case 'connecting':
+                    btn.textContent = 'Connecting...';
+                    btn.classList.add('connecting');
+                    btn.disabled = true;
+                    chatInput.disabled = true;
+                    break;
+
+                case 'connected':
+                    btn.textContent = 'Stop';
+                    btn.classList.add('connected');
+                    btn.disabled = false;
+                    chatInput.disabled = false;
+                    break;
+
+                case 'error':
+                    btn.textContent = 'Retry';
+                    btn.disabled = false;
+                    chatInput.disabled = true;
+                    break;
+            }
+        }
+
+        // 聊天输入处理
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log('📱 DOM加载完成，初始化移动端兼容性...');
+            
+            // 检测移动端设备
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            console.log('📱 移动端设备检测:', isMobile);
+            
+            // 添加移动端类名用于CSS优化
+            if (isMobile) {
+                document.body.classList.add('mobile-device');
+            }
+            
+            const chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+                chatInput.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        const message = this.value.trim();
+                        if (message && wsManager && wsManager.isConnected()) {
+                            console.log("发送消息:", message);
+                            if (wsManager.sendText(message)) {
+                                // 触发Live2D模型动作
+                                playRandomMotion();
+                                this.value = '';
+                            }
+                        } else if (message && (!wsManager || !wsManager.isConnected())) {
+                            console.log("WebSocket未连接，无法发送消息");
+                            showNotification('请先点击Start按钮连接AI', 'error');
+                        }
+                    }
+                });
+            }
+            
+            // 移动端按钮事件优化
+            const startStopBtn = document.getElementById('startStopBtn');
+            if (startStopBtn) {
+                console.log('📱 优化移动端按钮事件...');
+                
+                // 移除可能存在的旧事件监听器
+                const newBtn = startStopBtn.cloneNode(true);
+                startStopBtn.parentNode.replaceChild(newBtn, startStopBtn);
+                
+                // 重新绑定事件
+                if (isMobile) {
+                    // 移动端触摸事件优化
+                    newBtn.addEventListener('touchstart', function(e) {
+                        e.preventDefault(); // 防止双击缩放
+                        e.stopPropagation();
+                        this.style.transform = 'scale(0.95)';
+                        console.log('📱 移动端Start按钮触摸开始');
+                    }, { passive: false });
+                    
+                    newBtn.addEventListener('touchend', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.style.transform = '';
+                        console.log('📱 移动端Start按钮触摸结束');
+                        // 延迟执行点击逻辑，确保触摸事件完成
+                        setTimeout(() => {
+                            toggleConnection();
+                        }, 50);
+                    }, { passive: false });
+                    
+                    // 防止点击事件冲突
+                    newBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('📱 移动端Start按钮点击事件（已阻止）');
+                    });
+                } else {
+                    // 桌面端正常点击事件
+                    newBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🖥️ 桌面端Start按钮被点击');
+                        toggleConnection();
+                    });
+                }
+            }
+        });
+
+        // 启动时间更新
+        setInterval(updateTime, 1000);
+        updateTime(); // 立即更新一次
+
+        // 初始化按钮状态
+        updateMicButtonState();
+        updateVolumeButtonState();
+
+        // ===== WebSocket 管理器初始化 =====
+
+        // 初始化WebSocket管理器
+        function initWebSocketManager() {
+            if (typeof WebSocketManager === 'undefined') {
+                console.error('❌ WebSocketManager 未加载');
+                showNotification('WebSocket管理器加载失败', 'error');
+                return;
+            }
+
+            // 检查VAD库是否加载
+            console.log('🔍 检查依赖库加载状态:');
+            console.log('  WebSocketManager:', typeof WebSocketManager !== 'undefined');
+            console.log('  window.ort (ONNX Runtime):', typeof window.ort !== 'undefined');
+            console.log('  window.vad:', typeof window.vad !== 'undefined');
+            console.log('  window.vad.MicVAD:', window.vad && typeof window.vad.MicVAD !== 'undefined');
+
+            if (!window.ort) {
+                console.error('❌ ONNX Runtime未加载，VAD将无法工作');
+                showNotification('ONNX Runtime加载失败，语音功能将不可用', 'error');
+                return;
+            }
+
+            if (!window.vad) {
+                console.warn('⚠️ VAD库未加载，语音功能可能不可用');
+                showNotification('语音检测库加载失败，将禁用语音功能', 'error');
+                return;
+            }
+
+            wsManager = new WebSocketManager();
+
+            // 注册事件监听器
+            wsManager.on('connect', () => {
+                updateWSStatus('connected');
+                enableWSControls(true);
+                updateStartStopButton('connected');
+                console.log('🔗 WebSocket 连接成功');
+
+                // 自动启用语音检测（参考 wss_test.html）
+                setTimeout(() => {
+                    if (wsManager && wsManager.vadEnabled) {
+                        wsManager.toggleVAD();
+                        console.log('🎤 自动启用语音检测和录音上传');
+                        showNotification('🎤 语音录音已自动启用，开始说话即可自动录音发送', 'info');
+
+                        // 同步更新UI状态
+                        syncVoiceStatusUI();
+
+                        // 触发Live2D模型动作作为反馈
+                        playRandomMotion();
+                    } else {
+                        console.log('⚠️ VAD未初始化，将在初始化完成后自动启用');
+                    }
+                }, 1000); // 等待1秒确保VAD初始化完成
+            });
+
+            wsManager.on('disconnect', () => {
+                updateWSStatus('disconnected');
+                enableWSControls(false);
+                updateStartStopButton('disconnected');
+
+                // 断开连接时停止语音监听
+                if (wsManager.vadListening) {
+                    wsManager.toggleVAD();
+                    console.log('🔇 已停止语音监听');
+
+                    // 同步更新UI状态
+                    syncVoiceStatusUI();
+
+                    // 显示通知
+                    showNotification('🔇 语音录音已自动停用', 'info');
+                }
+
+                console.log('❌ WebSocket 连接断开');
+                showNotification('连接已断开，语音功能已停用', 'info');
+            });
+
+            wsManager.on('statusChange', (status) => {
+                updateWSStatus(status);
+                updateStartStopButton(status);
+                console.log('📡 连接状态变化:', status);
+            });
+
+            wsManager.on('message', (message) => {
+                console.log('📨 收到消息:', message);
+                if (message.type === 'text') {
+                    // 触发Live2D模型动作
+                    playRandomMotion();
+                }
+            });
+
+            wsManager.on('audioReceived', (audioData) => {
+                console.log('🔊 收到音频:', audioData);
+                // 触发Live2D模型动作
+                playRandomMotion();
+            });
+
+            wsManager.on('recordingStart', () => {
+                updateRecordingUI(true);
+                console.log('🎤 开始录音');
+            });
+
+            wsManager.on('recordingStop', () => {
+                updateRecordingUI(false);
+                console.log('⏹️ 录音结束');
+            });
+
+            wsManager.on('error', (error) => {
+                console.error('❌ WebSocket 错误:', error);
+                showNotification('连接错误: ' + error.message, 'error');
+            });
+
+            // 监听VAD初始化完成事件
+            wsManager.on('vadReady', (success) => {
+                console.log('🎧 收到 vadReady 事件, success:', success);
+
+                if (success) {
+                    console.log('✅ VAD初始化完成，可以启用语音监听');
+
+                    // 如果WebSocket已连接且VAD未启用，自动启用语音监听
+                    if (wsManager.isConnected() && !wsManager.vadListening) {
+                        console.log('🚀 事件触发：自动启用语音监听...');
+                        const vadStarted = wsManager.toggleVAD();
+                        if (vadStarted) {
+                            console.log('✅ 事件机制：语音检测和录音上传已自动启用');
+                            showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
+
+                            // 同步更新UI状态
+                            syncVoiceStatusUI();
+
+                            // 触发Live2D模型动作作为反馈
+                            playRandomMotion();
+                        } else {
+                            console.error('❌ 事件机制：自动启用VAD失败');
+                            showNotification('自动启用语音监听失败', 'error');
+                        }
+                    } else {
+                        console.log('📝 VAD已就绪，连接状态:', wsManager.isConnected(), '监听状态:', wsManager.vadListening);
+                    }
+                } else {
+                    console.error('❌ VAD初始化失败');
+                    showNotification('语音检测初始化失败，请刷新页面重试', 'error');
+                }
+            });
+        }
+
+
+
+
+        // ===== UI 更新函数 =====
+        function updateWSStatus(status) {
+            // 由于当前界面没有模态框中的状态显示元素，我们只在控制台记录状态
+            console.log('📡 WebSocket状态更新:', status);
+
+            // 如果模态框存在且元素存在，才更新UI
+            const statusDisplay = document.getElementById('wsStatusDisplay');
+            const connectBtn = document.getElementById('wsConnectBtn');
+            const disconnectBtn = document.getElementById('wsDisconnectBtn');
+
+            if (!statusDisplay || !connectBtn || !disconnectBtn) {
+                // 元素不存在，只记录状态，不尝试更新UI
+                return;
+            }
+
+            // 清除所有状态类
+            statusDisplay.className = 'ws-status-value';
+
+            switch (status) {
+                case 'connected':
+                    statusDisplay.textContent = '已连接';
+                    statusDisplay.classList.add('connected');
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    break;
+                case 'connecting':
+                    statusDisplay.textContent = '连接中...';
+                    statusDisplay.classList.add('connecting');
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = true;
+                    break;
+                case 'disconnected':
+                    statusDisplay.textContent = '未连接';
+                    statusDisplay.classList.add('disconnected');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    break;
+                case 'error':
+                    statusDisplay.textContent = '连接错误';
+                    statusDisplay.classList.add('error');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    break;
+            }
+        }
+
+        function enableWSControls(enabled) {
+            console.log('🎛️ 控制面板状态更新:', enabled ? '已启用' : '已禁用');
+
+            // 检查元素是否存在再进行操作
+            const voiceToggleBtn = document.getElementById('wsVoiceToggleBtn');
+            const recordBtn = document.getElementById('wsRecordBtn');
+            const textInput = document.getElementById('wsTextInput');
+            const sendTextBtn = document.getElementById('wsSendTextBtn');
+
+            if (voiceToggleBtn) voiceToggleBtn.disabled = !enabled;
+            if (recordBtn) recordBtn.disabled = !enabled;
+            if (textInput) textInput.disabled = !enabled;
+            if (sendTextBtn) sendTextBtn.disabled = !enabled;
+        }
+
+        function updateRecordingUI(isRecording) {
+            console.log('🎤 录音UI状态更新:', isRecording ? '录音中' : '已停止');
+
+            const recordBtn = document.getElementById('wsRecordBtn');
+            const sendAudioBtn = document.getElementById('wsSendAudioBtn');
+
+            if (!recordBtn || !sendAudioBtn) {
+                // 元素不存在，只记录状态
+                return;
+            }
+
+            const recordIcon = recordBtn.querySelector('.record-icon');
+            const recordText = recordBtn.querySelector('.record-text');
+
+            if (isRecording) {
+                recordBtn.classList.add('recording');
+                if (recordIcon) recordIcon.textContent = '⏹️';
+                if (recordText) recordText.textContent = '停止录音';
+                sendAudioBtn.disabled = true;
+            } else {
+                recordBtn.classList.remove('recording');
+                if (recordIcon) recordIcon.textContent = '🔴';
+                if (recordText) recordText.textContent = '开始录音';
+                sendAudioBtn.disabled = false;
+            }
+        }
+
+        function updateVADUI(isListening) {
+            console.log('🎧 VAD UI状态更新:', isListening ? '监听中' : '已停止');
+
+            const voiceToggleBtn = document.getElementById('wsVoiceToggleBtn');
+            const voiceStatus = document.getElementById('wsVoiceStatus');
+
+            if (!voiceToggleBtn) {
+                // 元素不存在，只记录状态
+                return;
+            }
+
+            const voiceIcon = voiceToggleBtn.querySelector('.voice-icon');
+            const voiceText = voiceToggleBtn.querySelector('.voice-text');
+
+            if (isListening) {
+                voiceToggleBtn.classList.add('listening');
+                if (voiceIcon) voiceIcon.textContent = '🔊';
+                if (voiceText) voiceText.textContent = '监听中';
+                if (voiceStatus) voiceStatus.textContent = '正在监听语音...';
+            } else {
+                voiceToggleBtn.classList.remove('listening');
+                if (voiceIcon) voiceIcon.textContent = '🎤';
+                if (voiceText) voiceText.textContent = '启用语音';
+                if (voiceStatus) voiceStatus.textContent = '语音未启用';
+            }
+        }
+
+        // 同步更新语音状态UI（从WebSocket管理器状态）
+        function syncVoiceStatusUI() {
+            if (wsManager && wsManager.vadEnabled) {
+                updateVADUI(wsManager.vadListening);
+
+                // 更新模态框中的语音按钮状态（如果存在）
+                const voiceToggleBtn = document.getElementById('wsVoiceToggleBtn');
+                if (voiceToggleBtn) {
+                    if (wsManager.vadListening) {
+                        voiceToggleBtn.textContent = '🔇 停用语音';
+                    } else {
+                        voiceToggleBtn.textContent = '🎤 启用语音';
+                    }
+                }
+
+                // 更新底部控制面板的麦克风按钮状态
+                updateMicButtonState();
+            }
+        }
+
+        // 更新麦克风按钮状态
+        function updateMicButtonState() {
+            const btn = document.getElementById('micBtn');
+            if (!btn) return;
+
+            const svg = btn.querySelector('svg');
+            if (!svg) return;
+
+            if (wsManager && wsManager.vadListening) {
+                // 语音录音正在进行
+                btn.classList.remove('active');
+                svg.innerHTML = '<path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>';
+                isMicOn = true;
+            } else {
+                // 语音录音已停止（默认状态）
+                btn.classList.add('active');
+                svg.innerHTML = '<path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>';
+                isMicOn = false;
+            }
+        }
+
+        // 更新音量按钮状态
+        function updateVolumeButtonState() {
+            const btn = document.getElementById('volumeBtn');
+            if (!btn) return;
+
+            const svg = btn.querySelector('svg');
+            if (!svg) return;
+
+            if (isVolumeOn) {
+                // 音量开启
+                btn.classList.remove('active');
+                svg.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+            } else {
+                // 音量关闭（静音）
+                btn.classList.add('active');
+                svg.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+            }
+        }
+
+        // ===== WebSocket 控制函数 =====
+        function connectWebSocket() {
+            if (!wsManager) {
+                initWebSocketManager();
+            }
+            wsManager.connect();
+        }
+
+        function disconnectWebSocket() {
+            if (wsManager) {
+                wsManager.disconnect();
+            }
+        }
+
+        function toggleVAD() {
+            if (!wsManager) return;
+
+            const isListening = wsManager.toggleVAD();
+            updateVADUI(isListening);
+
+            // 同步更新所有UI状态
+            syncVoiceStatusUI();
+
+            if (isListening) {
+                console.log('🎤 手动启用语音监听');
+                showNotification('🎤 语音监听已启用', 'info');
+            } else {
+                console.log('🔇 手动停用语音监听');
+                showNotification('🔇 语音监听已停用', 'info');
+            }
+        }
+
+        function toggleRecording() {
+            if (!wsManager) return;
+
+            wsManager.toggleRecording();
+        }
+
+        function sendAudio() {
+            if (!wsManager) return;
+
+            wsManager.sendAudio();
+            document.getElementById('wsSendAudioBtn').disabled = true;
+        }
+
+        function sendText() {
+            const textInput = document.getElementById('wsTextInput');
+            const text = textInput.value.trim();
+
+            if (!text || !wsManager) return;
+
+            if (wsManager.sendText(text)) {
+                textInput.value = '';
+                // 触发Live2D模型动作
+                playRandomMotion();
+            }
+        }
+
+        function stopAllAudio() {
+            if (wsManager) {
+                wsManager.stopAllAudio();
+            }
+        }
+
+        function resetWebSocket() {
+            if (wsManager) {
+                wsManager.disconnect();
+                setTimeout(() => {
+                    updateWSStatus('disconnected');
+                    enableWSControls(false);
+                    updateVADUI(false);
+                    updateRecordingUI(false);
+                }, 100);
+            }
+        }
+
+        // ===== 通知函数 =====
+        function showNotification(message, type = 'info') {
+            // 控制台输出
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            
+            // 移动端友好的视觉反馈
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                // 创建移动端Toast通知
+                const toast = document.createElement('div');
+                toast.textContent = message;
+                toast.style.cssText = `
+                    position: fixed;
+                    top: 80px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: ${type === 'error' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(16, 185, 129, 0.9)'};
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    z-index: 10000;
+                    max-width: 80%;
+                    text-align: center;
+                    backdrop-filter: blur(10px);
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                    animation: slideIn 0.3s ease;
+                `;
+                
+                // 添加动画
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes slideIn {
+                        from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+                        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                document.body.appendChild(toast);
+                
+                // 3秒后自动移除
+                setTimeout(() => {
+                    toast.style.animation = 'slideIn 0.3s ease reverse';
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                        if (style.parentNode) {
+                            style.parentNode.removeChild(style);
+                        }
+                    }, 300);
+                }, 3000);
+                
+                // 触觉反馈（如果支持）
+                if (navigator.vibrate && type === 'error') {
+                    navigator.vibrate([100, 50, 100]);
+                }
+            }
+        }
+
+        // ===== 麦克风权限检查函数 =====
+        async function checkMicrophonePermission() {
+            try {
+                console.log('🔍 检查麦克风权限...');
+                
+                // 移动端兼容性检查：直接尝试权限查询
+                if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+                    try {
+                        const permission = await navigator.permissions.query({ name: 'microphone' });
+                        console.log('🎤 麦克风权限状态:', permission.state);
+
+                        if (permission.state === 'denied') {
+                            showNotification('麦克风权限被拒绝，请在浏览器设置中允许麦克风访问', 'error');
+                            return false;
+                        } else if (permission.state === 'prompt') {
+                            console.log('📱 需要用户授权麦克风权限');
+                        } else if (permission.state === 'granted') {
+                            console.log('✅ 麦克风权限已授予');
+                        }
+                    } catch (permissionError) {
+                        console.warn('⚠️ 权限查询失败(移动端可能不支持):', permissionError);
+                    }
+                } else {
+                    console.log('📱 浏览器不支持权限查询API（常见于移动端），将直接尝试获取媒体流');
+                }
+
+                // 移动端友好：直接尝试获取媒体流来测试权限
+                try {
+                    console.log('🧪 尝试获取麦克风访问权限...');
+                    const testStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: { 
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true 
+                        } 
+                    });
+                    
+                    // 立即停止测试流
+                    testStream.getTracks().forEach(track => track.stop());
+                    console.log('✅ 麦克风权限测试成功');
+                    return true;
+                    
+                } catch (mediaError) {
+                    console.error('❌ 麦克风访问被拒绝:', mediaError);
+                    
+                    // 移动端友好的错误提示
+                    if (mediaError.name === 'NotAllowedError') {
+                        showNotification('请允许麦克风访问权限，语音功能需要使用麦克风', 'error');
+                    } else if (mediaError.name === 'NotFoundError') {
+                        showNotification('未找到麦克风设备', 'error');
+                    } else {
+                        showNotification('麦克风访问失败: ' + mediaError.message, 'error');
+                    }
+                    return false;
+                }
+
+            } catch (error) {
+                console.warn('⚠️ 权限检查过程出错:', error);
+                return true; // 继续尝试，让后续流程处理
+            }
+        }
+
+        // ===== 事件监听器绑定 =====
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log('📋 页面DOM加载完成，检查并绑定事件监听器...');
+
+            // 安全地绑定WebSocket控制按钮事件（只绑定存在的元素）
+            const wsConnectBtn = document.getElementById('wsConnectBtn');
+            const wsDisconnectBtn = document.getElementById('wsDisconnectBtn');
+            const wsVoiceToggleBtn = document.getElementById('wsVoiceToggleBtn');
+            const wsRecordBtn = document.getElementById('wsRecordBtn');
+            const wsSendAudioBtn = document.getElementById('wsSendAudioBtn');
+            const wsSendTextBtn = document.getElementById('wsSendTextBtn');
+            const wsStopAllBtn = document.getElementById('wsStopAllBtn');
+            const wsResetBtn = document.getElementById('wsResetBtn');
+            const wsTextInput = document.getElementById('wsTextInput');
+
+            if (wsConnectBtn) wsConnectBtn.addEventListener('click', connectWebSocket);
+            if (wsDisconnectBtn) wsDisconnectBtn.addEventListener('click', disconnectWebSocket);
+            if (wsVoiceToggleBtn) wsVoiceToggleBtn.addEventListener('click', toggleVAD);
+            if (wsRecordBtn) wsRecordBtn.addEventListener('click', toggleRecording);
+            if (wsSendAudioBtn) wsSendAudioBtn.addEventListener('click', sendAudio);
+            if (wsSendTextBtn) wsSendTextBtn.addEventListener('click', sendText);
+            if (wsStopAllBtn) wsStopAllBtn.addEventListener('click', stopAllAudio);
+            if (wsResetBtn) wsResetBtn.addEventListener('click', resetWebSocket);
+
+            // 文本输入Enter键发送（如果元素存在）
+            if (wsTextInput) {
+                wsTextInput.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        sendText();
+                    }
+                });
+            }
+
+            console.log('✅ 事件监听器绑定完成（仅绑定存在的元素）');
+        });
+
+    </script>
+</body>
+
+</html>

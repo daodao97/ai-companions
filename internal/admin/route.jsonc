@@ -1,0 +1,15 @@
+[
+  {
+    "id": 0,
+    "routes": [
+      {
+        "module_id": 0,
+        "name": "用户管理",
+        "type": 2,
+        "path": "/operator",
+        "icon": "ra-office-supplies",
+        "page_type": 7
+      }
+    ]
+  }
+]

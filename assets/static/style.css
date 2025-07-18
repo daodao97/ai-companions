@@ -1,0 +1,1015 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+#canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: pointer;
+    filter: brightness(1.05) saturate(1.1);
+}
+
+/* 添加细微的光晕效果 */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 50% 30%, rgba(168, 85, 247, 0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 18px;
+    font-weight: 600;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(15px) saturate(120%);
+    -webkit-backdrop-filter: blur(15px) saturate(120%);
+    padding: 24px 32px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 0.7;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        opacity: 0.9;
+        transform: translate(-50%, -50%) scale(1.02);
+    }
+}
+
+
+
+/* 顶部状态栏 */
+.top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: transparent;
+    border: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 24px;
+    z-index: 1000;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.top-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.menu-icon {
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s ease;
+}
+
+.menu-icon:hover {
+    opacity: 0.9;
+}
+
+.capture-btn {
+    background: transparent;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 25px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.capture-btn:hover {
+    color: white;
+    transform: translateY(-1px);
+}
+
+/* 底部控制面板 */
+.bottom-controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: transparent;
+    padding: 30px 24px 40px 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+
+.control-buttons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+}
+
+/* 宽屏幕时的水平布局 */
+@media (min-width: 1024px) {
+    .bottom-controls {
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: 40px;
+        max-width: 1200px;
+        margin: 0 auto;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .control-buttons {
+        margin: 0;
+    }
+}
+
+.control-btn {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.control-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px) scale(1.05);
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.control-btn.active {
+    background: rgba(99, 102, 241, 0.4);
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow:
+        0 8px 32px rgba(99, 102, 241, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.emoji-btn {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #333;
+    box-shadow:
+        0 8px 32px rgba(255, 255, 255, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.emoji-btn:hover {
+    background: rgba(255, 255, 255, 0.45);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px) scale(1.05);
+    box-shadow:
+        0 12px 40px rgba(255, 255, 255, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* 输入区域 */
+.input-area {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 4px;
+    background: transparent;
+    width: 100%;
+    max-width: 500px;
+}
+
+/* 宽屏幕时输入区域优化 */
+@media (min-width: 1024px) {
+    .input-area {
+        width: auto;
+        min-width: 400px;
+        max-width: 600px;
+        flex-shrink: 0;
+    }
+}
+
+.chat-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 28px;
+    padding: 16px 24px;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 16px;
+    outline: none;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    transition: all 0.3s ease;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.chat-input:focus {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.2),
+        0 0 0 4px rgba(255, 255, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.chat-input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+}
+
+.stop-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 16px 28px;
+    border-radius: 28px;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.stop-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px) scale(1.02);
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.stop-btn:active {
+    transform: translateY(0) scale(0.98);
+}
+
+.start-btn {
+    background: rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 16px 28px;
+    border-radius: 28px;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+        0 8px 32px rgba(16, 185, 129, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.start-btn:hover {
+    background: rgba(16, 185, 129, 0.3);
+    border-color: rgba(16, 185, 129, 0.4);
+    transform: translateY(-1px) scale(1.02);
+    box-shadow:
+        0 12px 40px rgba(16, 185, 129, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.start-btn:active {
+    transform: translateY(0) scale(0.98);
+}
+
+.start-btn.connecting {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.3);
+    animation: pulse-glow 2s infinite;
+}
+
+.start-btn.connected {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* 隐藏原来的控制按钮 */
+.controls {
+    display: none;
+}
+
+/* 微妙的闪烁效果 */
+@keyframes shimmer {
+    0% {
+        opacity: 0.8;
+    }
+
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.8;
+    }
+}
+
+.control-btn svg {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+/* 响应式设计优化 */
+@media (max-width: 1023px) {
+    .top-bar {
+        padding: 0 20px;
+        height: 56px;
+    }
+
+    .bottom-controls {
+        padding: 16px 16px 24px 16px; /* 减少内边距 */
+        gap: 16px; /* 减少间距 */
+    }
+
+    .control-buttons {
+        gap: 10px; /* 减少按钮间距 */
+    }
+}
+
+@media (max-width: 768px) {
+    .bottom-controls {
+        padding: 12px 12px 20px 12px; /* 进一步减少内边距 */
+        gap: 12px;
+    }
+    
+    .control-buttons {
+        gap: 8px;
+    }
+
+    .control-btn {
+        width: 48px;  /* 从56px减小到48px */
+        height: 48px;
+        font-size: 18px; /* 从20px减小到18px */
+    }
+
+    .chat-input {
+        padding: 12px 16px; /* 减少内边距 */
+        font-size: 15px;
+        min-height: 44px; /* 设置最小高度 */
+    }
+
+    .stop-btn, .start-btn {
+        padding: 12px 20px; /* 减少内边距 */
+        font-size: 14px;
+        min-height: 44px;
+    }
+
+    .input-area {
+        max-width: 100%;
+        gap: 8px; /* 减少间距 */
+    }
+}
+
+/* 超小屏幕优化 (480px 以下) */
+@media (max-width: 480px) {
+    .bottom-controls {
+        padding: 8px 8px 16px 8px; /* 最小内边距 */
+        gap: 8px;
+    }
+    
+    .control-buttons {
+        gap: 6px; /* 最小按钮间距 */
+    }
+
+    .control-btn {
+        width: 40px;  /* 进一步减小 */
+        height: 40px;
+        font-size: 16px;
+    }
+
+    .chat-input {
+        padding: 10px 14px;
+        font-size: 14px;
+        min-height: 40px;
+    }
+
+    .stop-btn, .start-btn {
+        padding: 10px 16px;
+        font-size: 13px;
+        min-height: 40px;
+    }
+
+    .input-area {
+        gap: 6px;
+    }
+
+    /* 超小屏幕时调整顶部栏 */
+    .top-bar {
+        padding: 0 12px;
+        height: 48px;
+        font-size: 16px;
+    }
+
+    .capture-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+}
+
+/* 极小屏幕优化 (360px 以下) */
+@media (max-width: 360px) {
+    .bottom-controls {
+        padding: 6px 6px 12px 6px;
+        gap: 6px;
+    }
+    
+    .control-buttons {
+        gap: 4px;
+    }
+
+    .control-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+
+    .chat-input {
+        padding: 8px 12px;
+        font-size: 14px;
+        min-height: 36px;
+    }
+
+    .stop-btn, .start-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+        min-height: 36px;
+    }
+
+    .input-area {
+        gap: 4px;
+    }
+
+    /* 极小屏幕时可能需要垂直堆叠 */
+    .input-area {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .chat-input {
+        width: 100%;
+        margin-bottom: 8px;
+    }
+
+    .start-btn, .stop-btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* 移动端特定优化 - 更新尺寸 */
+.mobile-device .start-btn,
+.mobile-device .stop-btn {
+    min-height: 44px; /* 从56px减小 */
+    padding: 12px 20px; /* 减少内边距 */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.mobile-device .control-btn {
+    width: 48px;  /* 从72px减小到48px */
+    height: 48px;
+    font-size: 18px; /* 从28px减小 */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.mobile-device .chat-input {
+    font-size: 16px; /* 防止iOS缩放 */
+    min-height: 44px;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 移动端按钮按下效果 */
+.mobile-device .start-btn:active,
+.mobile-device .stop-btn:active,
+.mobile-device .control-btn:active {
+    transform: scale(0.95) !important;
+    transition: transform 0.1s ease;
+}
+
+/* 移动端按钮触摸优化 */
+.mobile-device .start-btn,
+.mobile-device .stop-btn {
+    /* 确保有足够的触摸区域 */
+    min-width: 120px;
+    min-height: 48px;
+    /* 防止触摸高亮和选择 */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    /* 确保触摸响应 */
+    touch-action: manipulation;
+    /* 防止双击缩放 */
+    -webkit-touch-callout: none;
+    /* 确保按钮可以接收触摸事件 */
+    pointer-events: auto;
+}
+
+/* 确保在小屏幕上不会横向滚动 */
+@media (max-width: 480px) {
+    body {
+        overflow-x: hidden;
+    }
+    
+    .input-area {
+        padding: 0 2px;
+    }
+}
+
+/* 横屏模式优化 */
+@media (max-height: 500px) and (orientation: landscape) {
+    .bottom-controls {
+        padding: 6px 12px 8px 12px;
+        gap: 8px;
+    }
+    
+    .control-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+    
+    .chat-input, .start-btn, .stop-btn {
+        min-height: 36px;
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+}
+
+/* 增强的毛玻璃效果兼容性 */
+@supports not (backdrop-filter: blur(20px)) {
+    .bottom-controls {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    .control-btn,
+    .chat-input,
+    .stop-btn,
+    .start-btn {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .top-bar {
+        background: transparent;
+    }
+}
+
+/* 移动端特定优化 */
+.mobile-device .start-btn,
+.mobile-device .stop-btn {
+    /* 增大触控区域 */
+    min-height: 56px;
+    padding: 18px 32px;
+    /* 防止触摸高亮 */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    /* 确保触摸响应 */
+    touch-action: manipulation;
+}
+
+.mobile-device .control-btn {
+    /* 增大移动端控制按钮 */
+    width: 72px;
+    height: 72px;
+    font-size: 28px;
+    /* 防止触摸高亮 */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.mobile-device .chat-input {
+    /* 移动端输入框优化 */
+    font-size: 16px; /* 防止iOS缩放 */
+    min-height: 48px;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 移动端防止双击缩放 */
+.mobile-device .bottom-controls {
+    touch-action: manipulation;
+}
+
+/* 移动端按钮按下效果 */
+.mobile-device .start-btn:active,
+.mobile-device .stop-btn:active,
+.mobile-device .control-btn:active {
+    transform: scale(0.95) !important;
+    transition: transform 0.1s ease;
+}
+
+/* WebSocket 模态框样式 */
+.ws-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 2000;
+    animation: fadeIn 0.3s ease;
+}
+
+.ws-modal.show {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.ws-modal-content {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-radius: 20px;
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: slideUp 0.3s ease;
+}
+
+.ws-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 24px 16px 24px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.ws-modal-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #333;
+}
+
+.ws-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.ws-modal-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: #333;
+}
+
+.ws-modal-body {
+    padding: 24px;
+}
+
+.ws-status-section {
+    margin-bottom: 24px;
+}
+
+.ws-status-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.ws-status-label {
+    font-weight: 600;
+    color: #333;
+    margin-right: 12px;
+}
+
+.ws-status-value {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.ws-status-value.disconnected {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.ws-status-value.connecting {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.ws-status-value.connected {
+    background: #e8f5e8;
+    color: #2e7d32;
+}
+
+.ws-status-value.error {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.ws-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.ws-voice-section,
+.ws-record-section,
+.ws-text-section {
+    margin-bottom: 24px;
+}
+
+.ws-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.ws-voice-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.ws-voice-status {
+    font-size: 14px;
+    color: #666;
+    font-weight: 500;
+}
+
+.ws-voice-info {
+    font-size: 13px;
+    color: #888;
+    font-style: italic;
+}
+
+.ws-record-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.ws-text-input-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.ws-text-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+    font-size: 15px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.ws-text-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.ws-quick-actions {
+    display: flex;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.ws-btn {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ws-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ws-btn.primary {
+    background: #6366f1;
+    color: white;
+}
+
+.ws-btn.primary:hover:not(:disabled) {
+    background: #5856eb;
+    transform: translateY(-1px);
+}
+
+.ws-btn.secondary {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.ws-btn.secondary:hover:not(:disabled) {
+    background: #e5e7eb;
+    transform: translateY(-1px);
+}
+
+.ws-btn.warning {
+    background: #f59e0b;
+    color: white;
+}
+
+.ws-btn.warning:hover:not(:disabled) {
+    background: #d97706;
+    transform: translateY(-1px);
+}
+
+.ws-btn.voice-btn {
+    background: #10b981;
+    color: white;
+    min-width: 120px;
+}
+
+.ws-btn.voice-btn:hover:not(:disabled) {
+    background: #059669;
+    transform: translateY(-1px);
+}
+
+.ws-btn.voice-btn.listening {
+    background: #f59e0b;
+    animation: pulse-glow 2s infinite;
+}
+
+.ws-btn.record-btn {
+    background: #ef4444;
+    color: white;
+    min-width: 120px;
+}
+
+.ws-btn.record-btn:hover:not(:disabled) {
+    background: #dc2626;
+    transform: translateY(-1px);
+}
+
+.ws-btn.record-btn.recording {
+    animation: pulse-glow 1s infinite;
+}
+
+.ws-btn.send-btn {
+    background: #8b5cf6;
+    color: white;
+}
+
+.ws-btn.send-btn:hover:not(:disabled) {
+    background: #7c3aed;
+    transform: translateY(-1px);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
+        transform: scale(1);
+    }
+
+    50% {
+        box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+        transform: scale(1.02);
+    }
+}
+
+/* 响应式优化 */
+@media (max-width: 600px) {
+    .ws-modal-content {
+        margin: 10px;
+        border-radius: 16px;
+    }
+
+    .ws-modal-header,
+    .ws-modal-body {
+        padding: 20px;
+    }
+
+    .ws-actions,
+    .ws-record-controls,
+    .ws-quick-actions {
+        flex-direction: column;
+    }
+
+    .ws-text-input-row {
+        flex-direction: column;
+    }
+
+    .ws-text-input {
+        width: 100%;
+    }
+}

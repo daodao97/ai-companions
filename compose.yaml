@@ -1,0 +1,11 @@
+services:
+  xtpl:
+    build:
+      context: .
+      args:
+        - BUILD_VERSION=1.0.0
+    ports:
+      - 4001:4001
+    environment:
+      - APP_ENV=test
+    command: --bind 0.0.0.0:4001 --enable-openapi true

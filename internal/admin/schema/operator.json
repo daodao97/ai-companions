@@ -1,0 +1,105 @@
+{
+  "orderBy": {
+    "field": "id",
+    "mod": "desc"
+  },
+  "formItems": [
+    {
+      "field": "username",
+      "label": "用户名",
+      "rules": "required"
+    },
+    {
+      "field": "password",
+      "label": "密码",
+      "type": "input"
+    },
+    {
+      "field": "status",
+      "label": "状态",
+      "type": "select",
+      "value": 1,
+      "options": [
+        {
+          "value": 0,
+          "label": "禁用"
+        },
+        {
+          "value": 1,
+          "label": "启用"
+        }
+      ]
+    }
+  ],
+  "filter": [
+    {
+      "field": "id",
+      "label": "ID"
+    },
+    {
+      "field": "status",
+      "label": "状态",
+      "type": "select",
+      "options": [
+        {
+          "value": 0,
+          "label": "禁用"
+        },
+        {
+          "value": 1,
+          "label": "启用"
+        }
+      ]
+    }
+  ],
+  "headers": [
+    {
+      "field": "id",
+      "label": "ID",
+      "sortable": true
+    },
+    {
+      "field": "username",
+      "label": "用户名"
+    },
+    {
+      "field": "status",
+      "label": "状态",
+      "type": "enum",
+      "options": [
+        {
+          "value": 0,
+          "label": "禁用"
+        },
+        {
+          "value": 1,
+          "label": "启用"
+        }
+      ],
+      "state": {
+        "1": "success",
+        "0": "info"
+      }
+    }
+  ],
+  "normalButton": [
+    {
+      "props": {
+        "type": "success"
+      },
+      "target": "/operator/form",
+      "text": "新增",
+      "type": "jump"
+    }
+  ],
+  "rowButton": [
+    {
+      "props": {
+        "type": "primary"
+      },
+      "target": "/operator/{id}",
+      "text": "编辑",
+      "type": "jump"
+    }
+  ]
+}
