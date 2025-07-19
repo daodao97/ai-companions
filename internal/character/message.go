@@ -12,7 +12,7 @@ type AudioMessage struct {
 	xtts.AudioChunk
 }
 
-func NewAudioMessage(chunk xtts.AudioChunk) *AudioMessage {
+func NewAudioMessage(messageId string, chunk xtts.AudioChunk) *AudioMessage {
 	return &AudioMessage{
 		BaseMessage: xagent.BaseMessage{
 			Role: xagent.MessageRoleAssistant,
@@ -20,6 +20,7 @@ func NewAudioMessage(chunk xtts.AudioChunk) *AudioMessage {
 				Memory:  false,
 				Storage: false,
 			},
+			MessageID: messageId,
 		},
 		AudioChunk: chunk,
 	}

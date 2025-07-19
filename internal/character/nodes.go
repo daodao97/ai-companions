@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/daodao97/xgo/xlog"
+	"github.com/google/uuid"
 )
 
 // AI伴侣工作流状态 - 基于实际流程
@@ -112,8 +113,10 @@ func (l *LLMChatAndTTSNode) Execute(ctx context.Context, state *AICompanionState
 		}, nil
 	}
 
+	messageId := uuid.New().String()
+
 	for chunk := range audioStream {
-		state.MessageStream <- NewAudioMessage(chunk)
+		state.MessageStream <- NewAudioMessage(messageId, chunk)
 	}
 
 	xlog.InfoC(ctx, "LLM响应和TTS生成完成", xlog.String("content", state.LLMResponse), xlog.String("message_id", state.MessageID))
