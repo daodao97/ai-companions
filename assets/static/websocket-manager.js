@@ -1,6 +1,7 @@
 /**
  * WebSocket 管理器
  * 用于Live2D界面的语音交流功能
+ * @version 3.1.0 - 增强移动端音频解锁，多重策略确保兼容性
  */
 class WebSocketManager {
     constructor() {
@@ -23,6 +24,71 @@ class WebSocketManager {
         // 移动端音频播放相关
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         this.audioPlaybackUnlocked = false;
+        
+        // Howler.js 音频管理（必需）
+        this.howlerSounds = new Map(); // 存储Howler音频对象
+        this.unlockAttempts = 0; // 记录解锁尝试次数
+        this.lastUnlockTime = 0; // 记录最后解锁时间
+        
+        // 强制要求Howler.js
+        if (typeof Howl === 'undefined') {
+            const error = new Error('Howler.js is required but not loaded. Please ensure Howler.js is included before WebSocketManager.');
+            console.error('❌ 致命错误:', error.message);
+            throw error;
+        }
+        
+        console.log('✅ Howler.js 已加载，纯音频播放模式');
+        
+        // 检查Howler.js版本和可用功能
+        console.log('🔍 Howler.js 可用方法:', {
+            mute: typeof Howler.mute,
+            volume: typeof Howler.volume,
+            stop: typeof Howler.stop,
+            state: typeof Howler.state,
+            ctx: typeof Howler.ctx
+        });
+        
+        // 设置全局配置
+        try {
+            // 检查音频上下文状态（如果可用）
+            if (Howler.ctx && Howler.ctx.state) {
+                console.log('🎵 音频上下文初始状态:', Howler.ctx.state);
+                
+                // 监听音频上下文状态变化
+                if (Howler.ctx.onstatechange !== undefined) {
+                    Howler.ctx.onstatechange = () => {
+                        console.log('🔄 音频上下文状态变化:', Howler.ctx.state);
+                        if (Howler.ctx.state === 'running') {
+                            console.log('🔓 Howler.js: 音频上下文已运行，可能已解锁');
+                            this.audioPlaybackUnlocked = true;
+                            
+                            // 触发自定义事件
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                                    detail: { success: true, library: 'howler' }
+                                }));
+                            }
+                        }
+                    };
+                }
+            }
+            
+            // 设置iOS自动解锁（如果属性存在）
+            if (typeof Howler.autoSuspend !== 'undefined') {
+                Howler.autoSuspend = false;
+                console.log('✅ 已禁用Howler.js自动挂起');
+            }
+            
+            // 检查初始解锁状态
+            this.checkInitialAudioState();
+            
+        } catch (error) {
+            console.warn('⚠️ Howler.js 全局设置配置失败:', error);
+        }
+        
+        // 输出版本信息
+        console.log('�� WebSocket管理器版本: 3.1.0 - 增强移动端音频解锁，多重策略确保兼容性');
+        console.log('⏰ 初始化时间:', new Date().toISOString());
         
         // VAD 相关
         this.vad = null;
@@ -75,54 +141,284 @@ class WebSocketManager {
         return uid;
     }
     
-    // 移动端音频解锁方法（增强版）
+    // 增强移动端音频解锁方法（纯Howler.js + 多重策略）
     unlockAudioForMobile() {
-        if (this.isMobile && !this.audioPlaybackUnlocked) {
-            console.log('📱 移动端音频解锁...');
+        if (!this.audioPlaybackUnlocked) {
+            const now = Date.now();
+            
+            // 避免频繁重复尝试（间隔至少1秒）
+            if (now - this.lastUnlockTime < 1000) {
+                console.log('⏰ 音频解锁尝试过于频繁，跳过');
+                return;
+            }
+            
+            this.lastUnlockTime = now;
+            this.unlockAttempts++;
+            
+            console.log(`🔓 增强移动端音频解锁... (尝试 ${this.unlockAttempts})`);
+            console.log('📱 设备信息:', {
+                userAgent: navigator.userAgent.substring(0, 100),
+                isMobile: this.isMobile,
+                isHTTPS: location.protocol === 'https:',
+                audioContext: Howler.ctx ? Howler.ctx.state : 'unavailable'
+            });
+            
+            // 使用Howler.js进行多重策略音频解锁
+            console.log('🎵 使用Howler.js进行音频解锁...');
             try {
-                // 创建并立即播放静音音频
-                const silentAudio = new Audio();
-                silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAAAQIDqAgAAgQAAAEgAAAAQAUAA';
-                silentAudio.volume = 0.01;
-                silentAudio.muted = false;
-                silentAudio.preload = 'auto';
-                
-                const playPromise = silentAudio.play();
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        console.log('✅ 移动端音频已解锁');
+                // 首先尝试通过Web Audio API解锁
+                if (Howler.ctx && Howler.ctx.state === 'suspended') {
+                    console.log('🔄 尝试恢复被挂起的音频上下文...');
+                    Howler.ctx.resume().then(() => {
+                        console.log('✅ 音频上下文已恢复');
                         this.audioPlaybackUnlocked = true;
                         
-                        // 立即停止静音音频
-                        silentAudio.pause();
-                        silentAudio.currentTime = 0;
-                        
-                        // 触发自定义事件通知页面音频已解锁
+                        // 触发自定义事件
                         if (typeof window !== 'undefined') {
                             window.dispatchEvent(new CustomEvent('audioUnlocked', {
-                                detail: { success: true }
+                                detail: { success: true, library: 'howler' }
                             }));
                         }
-                        
                     }).catch((error) => {
-                        console.warn('⚠️ 静音音频播放失败:', error);
-                        this.audioPlaybackUnlocked = false;
-                        
-                        // 显示用户提示
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new CustomEvent('audioUnlocked', {
-                                detail: { success: false, error: error }
-                            }));
-                        }
+                        console.warn('⚠️ 音频上下文恢复失败:', error);
+                        // 使用静音音频解锁
+                        this.tryHowlerSilentAudio();
                     });
                 } else {
-                    console.log('⚠️ 浏览器不支持音频播放Promise');
-                    this.audioPlaybackUnlocked = true;
+                    // 如果上下文已经在运行或不存在，尝试播放静音音频
+                    this.tryHowlerSilentAudio();
                 }
+                
+                // 额外的移动端解锁策略
+                this.tryMobileAudioUnlock();
+                
             } catch (error) {
-                console.error('❌ 音频解锁异常:', error);
-                this.audioPlaybackUnlocked = false;
+                console.error('❌ Howler.js 解锁异常:', error);
+                console.error('❌ 音频解锁失败，无法播放音频');
             }
+        }
+    }
+    
+    // 移动端增强解锁策略
+    tryMobileAudioUnlock() {
+        console.log('📱 尝试移动端增强解锁策略...');
+        
+        // 策略1: 直接设置Howler全局音量
+        try {
+            Howler.volume(1.0);
+            console.log('✅ Howler全局音量已设置');
+        } catch (error) {
+            console.warn('⚠️ 设置Howler全局音量失败:', error);
+        }
+        
+        // 策略2: 检查并恢复音频上下文
+        if (Howler.ctx) {
+            console.log('🎵 音频上下文当前状态:', Howler.ctx.state);
+            
+            if (Howler.ctx.state === 'suspended') {
+                // 再次尝试恢复
+                Howler.ctx.resume().then(() => {
+                    console.log('✅ 二次音频上下文恢复成功');
+                    this.audioPlaybackUnlocked = true;
+                }).catch((error) => {
+                    console.warn('⚠️ 二次音频上下文恢复失败:', error);
+                });
+            }
+        }
+        
+        // 策略3: 创建并播放极短的测试音频
+        setTimeout(() => {
+            this.tryUltraShortAudio();
+        }, 500);
+    }
+    
+    // 超短音频测试
+    tryUltraShortAudio() {
+        console.log('🎵 尝试超短音频测试...');
+        
+        try {
+            const ultraShortSound = new Howl({
+                src: ['data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAAAQIDqAgAAgQAAAEgAAAAQAUAA'],
+                volume: 0.001, // 非常小的音量
+                autoplay: false,
+                preload: true,
+                onload: () => {
+                    console.log('🎵 超短音频加载成功');
+                    const playPromise = ultraShortSound.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch((error) => {
+                            console.warn('⚠️ 超短音频播放失败:', error);
+                        });
+                    }
+                },
+                onplay: () => {
+                    console.log('✅ 超短音频播放成功，解锁状态更新');
+                    this.audioPlaybackUnlocked = true;
+                    
+                    // 立即停止
+                    setTimeout(() => {
+                        ultraShortSound.stop();
+                        ultraShortSound.unload();
+                    }, 10);
+                    
+                    // 触发解锁事件
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                            detail: { success: true, library: 'howler', method: 'ultra-short' }
+                        }));
+                    }
+                },
+                onplayerror: (id, error) => {
+                    console.warn('⚠️ 超短音频播放错误:', error);
+                    ultraShortSound.unload();
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ 超短音频测试异常:', error);
+        }
+    }
+    
+    // 使用Howler.js播放静音音频进行解锁（所有平台）
+    tryHowlerSilentAudio() {
+        console.log('🔇 尝试使用Howler.js播放静音音频解锁...');
+        
+        try {
+            // 创建一个静音测试音频
+            const testSound = new Howl({
+                src: ['data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAAAQIDqAgAAgQAAAEgAAAAQAUAA'],
+                volume: 0.01,
+                autoplay: false,
+                onload: () => {
+                    console.log('✅ Howler.js: 测试音频加载成功');
+                    testSound.play();
+                },
+                onplay: () => {
+                    console.log('✅ Howler.js: 音频已解锁（静音播放）');
+                    this.audioPlaybackUnlocked = true;
+                    testSound.stop();
+                    testSound.unload();
+                    
+                    // 触发自定义事件
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                            detail: { success: true, library: 'howler' }
+                        }));
+                    }
+                },
+                onplayerror: (id, error) => {
+                    console.error('❌ Howler.js: 静音音频播放失败', error);
+                    testSound.unload();
+                    
+                    // 设置解锁失败状态
+                    this.audioPlaybackUnlocked = false;
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                            detail: { success: false, error: error }
+                        }));
+                    }
+                }
+            });
+            
+            // 立即尝试播放
+            testSound.play();
+            
+        } catch (error) {
+            console.error('❌ Howler.js 静音音频播放异常:', error);
+            // 设置解锁失败状态
+            this.audioPlaybackUnlocked = false;
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                    detail: { success: false, error: error }
+                }));
+            }
+        }
+    }
+    
+
+    
+    // 检查初始音频解锁状态
+    checkInitialAudioState() {
+        
+        try {
+            // 检查Web Audio API上下文状态
+            if (Howler.ctx) {
+                const state = Howler.ctx.state;
+                console.log('🔍 当前音频上下文状态:', state);
+                
+                if (state === 'running') {
+                    console.log('✅ 音频上下文已在运行状态');
+                    this.audioPlaybackUnlocked = true;
+                } else if (state === 'suspended') {
+                    console.log('⏸️ 音频上下文被挂起，需要用户交互解锁');
+                    this.audioPlaybackUnlocked = false;
+                } else {
+                    console.log('❓ 音频上下文状态未知:', state);
+                    this.audioPlaybackUnlocked = false;
+                }
+            } else {
+                console.log('⚠️ 无法访问Howler音频上下文');
+                // 降级：检查是否为移动端
+                this.audioPlaybackUnlocked = !this.isMobile;
+            }
+            
+            // 触发状态事件
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('audioStateChecked', {
+                    detail: { 
+                        unlocked: this.audioPlaybackUnlocked,
+                        library: 'howler',
+                        contextState: Howler.ctx ? Howler.ctx.state : 'unknown'
+                    }
+                }));
+            }
+            
+        } catch (error) {
+            console.warn('⚠️ 检查音频状态时出错:', error);
+            this.audioPlaybackUnlocked = !this.isMobile; // 保守估计
+        }
+    }
+    
+    // 重新检查音频解锁状态
+    recheckAudioUnlockStatus() {
+        
+        try {
+            const previousState = this.audioPlaybackUnlocked;
+            
+            // 检查Web Audio API上下文状态
+            if (Howler.ctx) {
+                const contextState = Howler.ctx.state;
+                console.log('🔍 重新检查音频上下文状态:', contextState);
+                
+                if (contextState === 'running') {
+                    this.audioPlaybackUnlocked = true;
+                } else if (contextState === 'suspended') {
+                    this.audioPlaybackUnlocked = false;
+                } else {
+                    // 状态未知，保持现有状态
+                    console.log('❓ 音频上下文状态未知:', contextState);
+                }
+            }
+            
+            // 如果状态发生变化，记录并通知
+            if (previousState !== this.audioPlaybackUnlocked) {
+                console.log(`🔄 音频解锁状态变化: ${previousState} → ${this.audioPlaybackUnlocked}`);
+                
+                if (this.audioPlaybackUnlocked) {
+                    console.log('✅ 音频解锁状态已恢复');
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                            detail: { success: true, library: 'howler', method: 'recheck' }
+                        }));
+                    }
+                }
+            }
+            
+            return this.audioPlaybackUnlocked;
+            
+        } catch (error) {
+            console.warn('⚠️ 重新检查音频状态时出错:', error);
+            return this.audioPlaybackUnlocked;
         }
     }
     
@@ -627,7 +923,7 @@ class WebSocketManager {
         }
     }
     
-    // 播放音频消息（增强的移动端兼容版本）
+    // 播放音频消息（Howler.js增强版）
     playAudioMessage(messageId) {
         if (!this.audioMessages[messageId] || this.audioMessages[messageId].length === 0) {
             return;
@@ -639,18 +935,36 @@ class WebSocketManager {
             return;
         }
         
-        // 移动端检查：如果音频未解锁，先尝试解锁
-        if (this.isMobile && !this.audioPlaybackUnlocked) {
-            console.log('📱 移动端音频未解锁，无法自动播放');
-            // 不自动解锁，而是显示提示让用户主动操作
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
-                    detail: { 
-                        reason: 'unlock_required',
-                        messageId: messageId 
+        // 实时检查音频解锁状态
+        this.recheckAudioUnlockStatus();
+        
+        // 检查音频解锁状态
+        if (!this.audioPlaybackUnlocked) {
+            console.log('🎵 音频未解锁，尝试重新解锁...');
+            
+            // 尝试自动重新解锁
+            this.unlockAudioForMobile();
+            
+            // 短暂延迟后重新检查
+            setTimeout(() => {
+                if (!this.audioPlaybackUnlocked) {
+                    console.log('⚠️ 自动重新解锁失败，显示用户提示');
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
+                            detail: { 
+                                reason: 'unlock_required',
+                                messageId: messageId,
+                                attempts: this.unlockAttempts || 0
+                            }
+                        }));
                     }
-                }));
-            }
+                } else {
+                    console.log('✅ 重新解锁成功，继续播放音频');
+                    // 递归调用以继续播放
+                    this.playAudioMessage(messageId);
+                }
+            }, 200);
+            
             return;
         }
         
@@ -658,14 +972,29 @@ class WebSocketManager {
         this.currentMessageId = messageId;
         
         const sortedChunks = this.audioMessages[messageId].sort((a, b) => a.chunkId - b.chunkId);
+        
+        // 使用 Howler.js 播放音频（纯模式）
+        console.log('🎵 使用 Howler.js 播放音频 (纯模式)');
+        this.playAudioWithHowler(messageId, sortedChunks);
+    }
+    
+    // 使用Howler.js播放音频
+    playAudioWithHowler(messageId, sortedChunks) {
+        console.log('🎵 使用Howler.js播放音频, chunks:', sortedChunks.length);
         let currentIndex = 0;
-        let playbackFailures = 0;
         
         const playNextChunk = () => {
             if (currentIndex >= sortedChunks.length) {
                 this.isAutoPlaying = false;
                 this.currentAudio = null;
                 delete this.audioMessages[messageId];
+                
+                // 清理Howler音频对象
+                if (this.howlerSounds.has(messageId)) {
+                    const sound = this.howlerSounds.get(messageId);
+                    sound.unload();
+                    this.howlerSounds.delete(messageId);
+                }
                 
                 // 检查是否有其他待播放消息
                 const pendingMessages = Object.keys(this.audioMessages);
@@ -689,109 +1018,86 @@ class WebSocketManager {
                 
                 const audioBlob = new Blob([bytes], { type: `audio/${audioItem.format}` });
                 const audioUrl = URL.createObjectURL(audioBlob);
-                this.currentAudio = new Audio(audioUrl);
                 
-                // 移动端优化设置
-                if (this.isMobile) {
-                    this.currentAudio.preload = 'auto';
-                    this.currentAudio.volume = 1.0;
-                    this.currentAudio.muted = false;
-                }
-                
-                this.currentAudio.oncanplay = () => {
-                    const playPromise = this.currentAudio.play();
-                    
-                    if (playPromise !== undefined) {
-                        playPromise.then(() => {
-                            console.log('🔊 音频播放成功');
-                            playbackFailures = 0; // 重置失败计数
-                        }).catch(error => {
-                            console.error('🔊 音频播放失败:', error);
-                            playbackFailures++;
-                            
-                            // 处理不同类型的播放错误
-                            if (error.name === 'NotAllowedError') {
-                                console.error('❌ 用户禁用了音频自动播放');
-                                if (this.isMobile && !this.audioPlaybackUnlocked) {
-                                    // 移动端音频解锁失败，显示用户提示
-                                    if (typeof window !== 'undefined') {
-                                        window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
-                                            detail: { 
-                                                reason: 'user_interaction_required',
-                                                messageId: messageId,
-                                                error: error
-                                            }
-                                        }));
-                                    }
-                                }
-                            } else if (error.name === 'AbortError') {
-                                console.log('🛑 音频播放被中断');
-                            }
-                            
-                            URL.revokeObjectURL(audioUrl);
-                            
-                            // 如果连续失败次数过多，停止尝试
-                            if (playbackFailures >= 3) {
-                                console.error('❌ 连续播放失败，停止尝试');
-                                this.isAutoPlaying = false;
-                                this.currentAudio = null;
-                                return;
-                            }
-                            
-                            playNextChunk();
-                        });
-                    } else {
-                        console.warn('⚠️ 浏览器不支持音频播放Promise');
-                        playNextChunk();
-                    }
-                };
-                
-                this.currentAudio.onended = () => {
-                    URL.revokeObjectURL(audioUrl);
-                    setTimeout(playNextChunk, 50);
-                };
-                
-                this.currentAudio.onerror = (error) => {
-                    console.error('🔊 音频加载错误:', error);
-                    URL.revokeObjectURL(audioUrl);
-                    playbackFailures++;
-                    
-                    if (playbackFailures >= 3) {
-                        console.error('❌ 连续加载失败，停止尝试');
+                // 创建Howler音频对象
+                const sound = new Howl({
+                    src: [audioUrl],
+                    format: ['webm', 'mp3', 'wav'], // 支持多种格式
+                    volume: 1.0,
+                    preload: true,
+                    autoplay: false,
+                    onload: () => {
+                        console.log('🎵 Howler.js: 音频chunk加载成功', currentIndex - 1);
+                        sound.play();
+                    },
+                    onplay: () => {
+                        console.log('🔊 Howler.js: 音频chunk播放开始', currentIndex - 1);
+                        this.currentAudio = sound;
+                    },
+                    onend: () => {
+                        console.log('✅ Howler.js: 音频chunk播放结束', currentIndex - 1);
+                        URL.revokeObjectURL(audioUrl);
+                        sound.unload();
+                        setTimeout(playNextChunk, 50);
+                    },
+                    onloaderror: (id, error) => {
+                        console.error('❌ Howler.js: 音频加载错误', id, error);
+                        URL.revokeObjectURL(audioUrl);
+                        sound.unload();
+                        
+                        // 停止播放，设置错误状态
                         this.isAutoPlaying = false;
                         this.currentAudio = null;
-                        return;
+                        console.error('❌ 音频播放失败，无法继续');
+                    },
+                    onplayerror: (id, error) => {
+                        console.error('❌ Howler.js: 音频播放错误', id, error);
+                        URL.revokeObjectURL(audioUrl);
+                        sound.unload();
+                        
+                        // 显示用户交互提示
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
+                                detail: { 
+                                    reason: 'user_interaction_required',
+                                    messageId: messageId,
+                                    error: error
+                                }
+                            }));
+                        }
+                        
+                        // 停止播放
+                        this.isAutoPlaying = false;
+                        this.currentAudio = null;
+                    },
+                    onstop: () => {
+                        URL.revokeObjectURL(audioUrl);
+                        sound.unload();
                     }
-                    
-                    playNextChunk();
-                };
+                });
                 
-                this.currentAudio.onloadstart = () => {
-                    console.log('🔄 开始加载音频chunk:', currentIndex - 1);
-                };
+                // 存储音频对象以便管理
+                this.howlerSounds.set(`${messageId}_${currentIndex}`, sound);
                 
             } catch (error) {
-                console.error('❌ 音频处理错误:', error);
-                playbackFailures++;
-                
-                if (playbackFailures >= 3) {
-                    console.error('❌ 连续处理失败，停止尝试');
-                    this.isAutoPlaying = false;
-                    this.currentAudio = null;
-                    return;
-                }
-                
-                playNextChunk();
+                console.error('❌ Howler.js: 音频处理错误', error);
+                // 停止播放
+                this.isAutoPlaying = false;
+                this.currentAudio = null;
             }
         };
         
         playNextChunk();
     }
     
+
+    
     // 打断当前音频
     interruptCurrentAudio() {
         if (this.currentAudio) {
-            this.currentAudio.pause();
+            // Howler音频对象
+            this.currentAudio.stop();
+            this.currentAudio.unload();
             this.currentAudio = null;
         }
         this.isAutoPlaying = false;
@@ -801,6 +1107,26 @@ class WebSocketManager {
     // 停止所有音频播放
     stopAllAudio() {
         this.interruptCurrentAudio();
+        
+        // 停止所有Howler音频对象
+        if (this.howlerSounds.size > 0) {
+            console.log('🛑 停止所有Howler音频对象:', this.howlerSounds.size);
+            this.howlerSounds.forEach((sound, key) => {
+                try {
+                    sound.stop();
+                    sound.unload();
+                } catch (error) {
+                    console.warn('⚠️ 停止Howler音频出错:', key, error);
+                }
+            });
+            this.howlerSounds.clear();
+        }
+        
+        // 全局停止Howler音频
+        if (typeof Howler !== 'undefined') {
+            Howler.stop();
+        }
+        
         this.audioMessages = {};
     }
     
@@ -847,6 +1173,8 @@ class WebSocketManager {
     // 获取状态
     getStatus() {
         return {
+            version: '3.1.0',
+            lastUpdate: '增强移动端音频解锁，多重策略确保兼容性',
             connectionStatus: this.connectionStatus,
             isConnected: this.isConnected(),
             isRecording: this.isRecording,
@@ -854,7 +1182,46 @@ class WebSocketManager {
             vadEnabled: this.vadEnabled,
             audioAutoPlayEnabled: this.audioAutoPlayEnabled,
             isAutoPlaying: this.isAutoPlaying,
-            audioPlaybackUnlocked: this.audioPlaybackUnlocked
+            audioPlaybackUnlocked: this.audioPlaybackUnlocked,
+            howlerSoundsCount: this.howlerSounds.size,
+            isMobile: this.isMobile,
+            unlockAttempts: this.unlockAttempts,
+            lastUnlockTime: this.lastUnlockTime,
+            audioPlayMode: 'Howler.js (纯模式)'
+        };
+    }
+    
+    // 获取版本信息
+    getVersion() {
+        return {
+            version: '3.1.0',
+            description: '增强移动端音频解锁，多重策略确保兼容性',
+            timestamp: new Date().toISOString(),
+            majorChanges: [
+                '🎵 完全移除原生Audio API支持',
+                '🛠️ 强制要求Howler.js，加载失败时直接抛出错误',
+                '🔧 简化代码架构，移除所有降级逻辑',
+                '⚡ 提升性能，减少代码复杂度',
+                '🎯 专注于Howler.js的最佳实践',
+                '📱 增强移动端音频解锁机制',
+                '🔓 多重音频解锁策略（上下文恢复、静音播放、超短音频）',
+                '👆 增强用户交互检测和音频解锁',
+                '📋 改进移动端音频故障提示和解决方案'
+            ],
+            removedFeatures: [
+                '原生Audio播放方法',
+                '音频播放降级策略',
+                'isHowlerAvailable兼容检查',
+                '原生音频解锁方法',
+                '平台差异化处理逻辑'
+            ],
+            preservedFeatures: [
+                '智能音频解锁重试机制',
+                '实时音频状态检查',
+                '手动解锁按钮界面',
+                '防止频繁重复尝试',
+                '增强的错误处理和用户提示'
+            ]
         };
     }
     

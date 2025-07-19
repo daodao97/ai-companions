@@ -81,7 +81,11 @@
     <!-- WebSocket 和 VAD 相关库 -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
-    <script src="/static/websocket-manager.js"></script>
+    
+    <!-- Howler.js 音频播放库 (移动端优化) -->
+    <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
+    
+    <script src="/static/websocket-manager.js?v=3.1.0"></script>
     {{if .IsDev}}
     <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
     <script>
@@ -323,10 +327,20 @@
                     
                     // 移动端特殊处理：确保音频已解锁
                     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                    if (isMobile && !wsManager.audioPlaybackUnlocked) {
+                    if (isMobile && wsManager && !wsManager.audioPlaybackUnlocked) {
                         console.log('📱 开启音量时检测到移动端音频未解锁，尝试解锁...');
-                        wsManager.unlockAudioForMobile();
-                        showNotification('📱 正在启用移动端音频播放...', 'info');
+                        try {
+                            if (wsManager.unlockAudioForMobile && typeof wsManager.unlockAudioForMobile === 'function') {
+                                wsManager.unlockAudioForMobile();
+                                showNotification('📱 正在启用移动端音频播放...', 'info');
+                            } else {
+                                console.warn('⚠️ 音频解锁方法不可用');
+                                showNotification('⚠️ 音频解锁功能暂不可用，请稍后重试', 'error');
+                            }
+                        } catch (error) {
+                            console.error('❌ 音量按钮音频解锁失败:', error);
+                            showNotification('❌ 音频解锁失败，请刷新页面重试', 'error');
+                        }
                     }
                 }
 
@@ -415,6 +429,7 @@
             const chatInput = document.getElementById('chatInput');
 
             if (!wsManager) {
+                console.log('🔧 WebSocket管理器未初始化，立即初始化...');
                 initWebSocketManager();
             }
 
@@ -499,6 +514,40 @@
             }
         }
 
+        // 页面版本标识
+        console.log('%c🚀 AI Companion v3.1.0', 'background: #E91E63; color: white; padding: 5px 10px; border-radius: 3px; font-weight: bold;');
+        console.log('%c📱 移动端增强: 多重音频解锁策略，提升移动端兼容性', 'color: #E91E63; font-weight: bold;');
+        console.log('%c🔓 音频解锁: 上下文恢复 + 静音播放 + 超短音频测试', 'color: #9C27B0; font-weight: bold;');
+        console.log('%c👆 交互检测: 增强用户交互检测，多点触发音频解锁', 'color: #4CAF50; font-weight: bold;');
+        console.log('%c📋 用户体验: 渐进式提示，清晰的移动端解决方案指导', 'color: #FF9800; font-weight: bold;');
+        console.log('%c⚠️ 重要: Howler.js现在是必需依赖，加载失败将无法使用音频功能', 'color: #FF5722; font-weight: bold;');
+        console.log('%c💡 如遇到缓存问题，请使用 Ctrl+Shift+R 强制刷新', 'color: #FF9800; font-weight: bold;');
+        console.log('%c🛠️ 调试命令: checkVersion(), showAudioStatus(), testHowlerUnifiedPlayback()', 'color: #9C27B0;');
+
+        // 全局错误处理器
+        window.addEventListener('error', function(event) {
+            console.error('❌ 全局错误:', event.error);
+            console.error('错误详情:', {
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                stack: event.error ? event.error.stack : 'No stack trace'
+            });
+            
+            // 如果是Howler.on错误，显示特殊提示
+            if (event.message && event.message.includes('Howler.on is not a function')) {
+                console.error('🔄 检测到缓存问题！请强制刷新页面: Ctrl+Shift+R (Windows) 或 Cmd+Shift+R (Mac)');
+                if (typeof showNotification === 'function') {
+                    showNotification('🔄 检测到缓存问题！请使用 Ctrl+Shift+R 强制刷新页面', 'error');
+                }
+            }
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('❌ 未处理的Promise拒绝:', event.reason);
+        });
+
         // 聊天输入处理
         document.addEventListener('DOMContentLoaded', function () {
             console.log('📱 DOM加载完成，初始化移动端兼容性...');
@@ -506,6 +555,17 @@
             // 检测移动端设备
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             console.log('📱 移动端设备检测:', isMobile);
+            
+            // 立即初始化WebSocket管理器（但不连接）
+            if (!wsManager) {
+                console.log('🔧 初始化WebSocket管理器...');
+                initWebSocketManager();
+            }
+            
+            // 延迟检查版本信息（确保WebSocket管理器已初始化）
+            setTimeout(() => {
+                checkVersion();
+            }, 1000);
             
             // 添加移动端类名用于CSS优化
             if (isMobile) {
@@ -532,17 +592,92 @@
                 });
             }
             
-            // 监听音频播放被阻止的事件
+            // 监听音频播放被阻止的事件（增强版）
             window.addEventListener('audioPlaybackBlocked', function(event) {
                 const detail = event.detail;
                 console.log('🔇 音频播放被阻止:', detail);
                 
                 if (detail.reason === 'unlock_required') {
-                    showNotification('📱 移动端音频需要用户操作解锁，请点击屏幕任意位置启用音频播放', 'info');
+                    const attempts = detail.attempts || 0;
+                    
+                    if (attempts === 0) {
+                        showNotification('📱 音频播放需要解锁，正在尝试自动解锁...', 'info');
+                    } else if (attempts === 1) {
+                        showNotification('📱 音频解锁失败，正在重试并增强解锁策略...', 'info');
+                    } else if (attempts === 2) {
+                        showNotification('📱 音频解锁多次失败，请尝试以下操作:', 'error');
+                        showMobileAudioTips();
+                    } else if (attempts >= 3) {
+                        // 多次尝试失败，显示手动解锁提示
+                        showNotification('📱 自动解锁失败，请手动解锁音频播放', 'error');
+                        showManualUnlockButton();
+                        showMobileAudioTips();
+                    }
                 } else if (detail.reason === 'user_interaction_required') {
                     showNotification('📱 请点击屏幕任意位置以启用音频播放功能', 'info');
                 }
             });
+            
+            // 显示移动端音频解决方案提示
+            function showMobileAudioTips() {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    // 创建提示面板
+                    const tipsPanel = document.createElement('div');
+                    tipsPanel.id = 'mobileAudioTips';
+                    tipsPanel.innerHTML = `
+                        <div style="
+                            position: fixed;
+                            top: 20px;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            background: rgba(255, 87, 34, 0.95);
+                            color: white;
+                            padding: 15px 20px;
+                            border-radius: 15px;
+                            font-size: 14px;
+                            z-index: 10002;
+                            max-width: 90%;
+                            text-align: left;
+                            backdrop-filter: blur(10px);
+                            box-shadow: 0 8px 25px rgba(255, 87, 34, 0.4);
+                        ">
+                            <div style="font-weight: bold; margin-bottom: 8px;">📱 移动端音频解决方案：</div>
+                            <div style="margin-bottom: 5px;">1. 确保设备音量已开启</div>
+                            <div style="margin-bottom: 5px;">2. 点击屏幕任意位置多次</div>
+                            <div style="margin-bottom: 5px;">3. 尝试播放其他音频后再返回</div>
+                            <div style="margin-bottom: 10px;">4. 刷新页面重新尝试</div>
+                            <div style="text-align: center;">
+                                <button onclick="this.parentElement.parentElement.remove()" style="
+                                    background: white;
+                                    color: #FF5722;
+                                    border: none;
+                                    padding: 8px 15px;
+                                    border-radius: 8px;
+                                    font-weight: bold;
+                                    cursor: pointer;
+                                ">知道了</button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 移除现有的提示面板
+                    const existingTips = document.getElementById('mobileAudioTips');
+                    if (existingTips) {
+                        existingTips.remove();
+                    }
+                    
+                    document.body.appendChild(tipsPanel);
+                    
+                    // 15秒后自动移除
+                    setTimeout(() => {
+                        if (tipsPanel.parentNode) {
+                            tipsPanel.remove();
+                        }
+                    }, 15000);
+                }
+            }
             
             // 监听音频解锁事件
             window.addEventListener('audioUnlocked', function(event) {
@@ -550,21 +685,105 @@
                 console.log('🔊 音频解锁事件:', detail);
                 
                 if (detail.success) {
-                    showNotification('🔊 移动端音频播放已启用！', 'info');
+                    const library = detail.library === 'howler' ? 'Howler.js' : '原生';
+                    showNotification(`🔊 移动端音频播放已启用！(${library})`, 'info');
                 } else {
                     showNotification('⚠️ 音频解锁失败，请手动开启音量并重试', 'error');
                 }
             });
             
-            // 移动端音频解锁全局处理器
+            // 监听音频状态检查事件
+            window.addEventListener('audioStateChecked', function(event) {
+                const detail = event.detail;
+                console.log('🔍 音频状态检查结果:', detail);
+                
+                if (detail.unlocked) {
+                    console.log('✅ 音频播放可用');
+                } else {
+                    console.log('⚠️ 音频播放需要用户交互解锁');
+                }
+            });
+            
+            // 移动端音频解锁全局处理器（增强版）
             let audioUnlockHandled = false;
+            let audioUnlockAttempts = 0;
+            const maxUnlockAttempts = 5;
+            
             function handleUserInteractionForAudio() {
-                if (isMobile && wsManager && !wsManager.audioPlaybackUnlocked && !audioUnlockHandled) {
-                    console.log('👆 检测到用户交互，尝试解锁移动端音频...');
-                    audioUnlockHandled = true;
-                    wsManager.unlockAudioForMobile();
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                if (isMobile && wsManager && wsManager.unlockAudioForMobile && typeof wsManager.unlockAudioForMobile === 'function' && !wsManager.audioPlaybackUnlocked && audioUnlockAttempts < maxUnlockAttempts) {
+                    console.log(`👆 检测到用户交互，尝试解锁移动端音频... (尝试 ${audioUnlockAttempts + 1}/${maxUnlockAttempts})`);
+                    audioUnlockAttempts++;
+                    
+                    try {
+                        wsManager.unlockAudioForMobile();
+                        
+                        // 短暂延迟后检查解锁状态
+                        setTimeout(() => {
+                            if (wsManager.audioPlaybackUnlocked) {
+                                console.log('✅ 用户交互音频解锁成功');
+                                audioUnlockHandled = true;
+                            } else {
+                                console.log('⚠️ 用户交互音频解锁失败，将在下次交互时重试');
+                            }
+                        }, 200);
+                        
+                    } catch (error) {
+                        console.error('❌ 音频解锁调用失败:', error);
+                    }
+                } else if (isMobile && !wsManager) {
+                    console.log('⚠️ WebSocket管理器尚未初始化，稍后重试音频解锁...');
+                } else if (isMobile && wsManager && wsManager.audioPlaybackUnlocked) {
+                    console.log('✅ 音频已解锁，无需重复解锁');
+                } else if (audioUnlockAttempts >= maxUnlockAttempts) {
+                    console.log('⚠️ 音频解锁尝试次数已达上限，停止自动解锁');
                 }
             }
+            
+            // 增强的移动端触摸事件监听器
+            function setupEnhancedMobileInteraction() {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    console.log('📱 设置增强的移动端交互监听器...');
+                    
+                    // 多种用户交互类型
+                    const interactionEvents = ['touchstart', 'touchend', 'click', 'keydown', 'scroll'];
+                    
+                    interactionEvents.forEach(eventType => {
+                        document.addEventListener(eventType, function(e) {
+                            // 防抖，避免过于频繁的调用
+                            if (!handleUserInteractionForAudio.lastCall || Date.now() - handleUserInteractionForAudio.lastCall > 1000) {
+                                handleUserInteractionForAudio.lastCall = Date.now();
+                                handleUserInteractionForAudio();
+                            }
+                        }, { 
+                            passive: true,
+                            capture: true
+                        });
+                    });
+                    
+                    // 特殊处理：页面可见性变化时也尝试解锁
+                    document.addEventListener('visibilitychange', function() {
+                        if (!document.hidden && isMobile) {
+                            console.log('📱 页面重新可见，尝试音频解锁...');
+                            setTimeout(handleUserInteractionForAudio, 500);
+                        }
+                    });
+                    
+                    // 窗口焦点事件
+                    window.addEventListener('focus', function() {
+                        if (isMobile) {
+                            console.log('📱 窗口获得焦点，尝试音频解锁...');
+                            setTimeout(handleUserInteractionForAudio, 300);
+                        }
+                    });
+                }
+            }
+            
+            // 设置增强的移动端交互
+            setupEnhancedMobileInteraction();
             
             // 为多种用户交互添加音频解锁
             ['click', 'touchstart', 'touchend', 'keydown'].forEach(eventType => {
@@ -593,7 +812,11 @@
                         console.log('📱 移动端Start按钮触摸开始');
                         
                         // 触摸时立即尝试解锁音频
-                        handleUserInteractionForAudio();
+                        try {
+                            handleUserInteractionForAudio();
+                        } catch (error) {
+                            console.error('❌ 触摸事件音频解锁失败:', error);
+                        }
                     }, { passive: false });
                     
                     newBtn.addEventListener('touchend', function(e) {
@@ -637,34 +860,36 @@
 
         // 初始化WebSocket管理器
         function initWebSocketManager() {
-            if (typeof WebSocketManager === 'undefined') {
-                console.error('❌ WebSocketManager 未加载');
-                showNotification('WebSocket管理器加载失败', 'error');
-                return;
-            }
+            try {
+                if (typeof WebSocketManager === 'undefined') {
+                    console.error('❌ WebSocketManager 未加载');
+                    showNotification('WebSocket管理器加载失败，请刷新页面重试', 'error');
+                    return false;
+                }
 
-            // 检查VAD库是否加载
-            console.log('🔍 检查依赖库加载状态:');
-            console.log('  WebSocketManager:', typeof WebSocketManager !== 'undefined');
-            console.log('  window.ort (ONNX Runtime):', typeof window.ort !== 'undefined');
-            console.log('  window.vad:', typeof window.vad !== 'undefined');
-            console.log('  window.vad.MicVAD:', window.vad && typeof window.vad.MicVAD !== 'undefined');
+                console.log('🔧 开始初始化WebSocket管理器...');
+                console.log('📋 依赖检查:');
+                console.log('  WebSocketManager:', typeof WebSocketManager !== 'undefined');
+                console.log('  Howler.js:', typeof Howl !== 'undefined');
+                console.log('  ONNX Runtime:', typeof window.ort !== 'undefined');
+                console.log('  VAD库:', typeof window.vad !== 'undefined');
+                console.log('  window.vad.MicVAD:', window.vad && typeof window.vad.MicVAD !== 'undefined');
 
-            if (!window.ort) {
-                console.error('❌ ONNX Runtime未加载，VAD将无法工作');
-                showNotification('ONNX Runtime加载失败，语音功能将不可用', 'error');
-                return;
-            }
+                if (!window.ort) {
+                    console.error('❌ ONNX Runtime未加载，VAD将无法工作');
+                    showNotification('ONNX Runtime加载失败，语音功能将不可用', 'error');
+                    return false;
+                }
 
-            if (!window.vad) {
-                console.warn('⚠️ VAD库未加载，语音功能可能不可用');
-                showNotification('语音检测库加载失败，将禁用语音功能', 'error');
-                return;
-            }
+                if (!window.vad) {
+                    console.warn('⚠️ VAD库未加载，语音功能可能不可用');
+                    showNotification('语音检测库加载失败，将禁用语音功能', 'error');
+                    return false;
+                }
 
-            wsManager = new WebSocketManager();
+                wsManager = new WebSocketManager();
 
-            // 注册事件监听器
+                // 注册事件监听器
             wsManager.on('connect', () => {
                 updateWSStatus('connected');
                 enableWSControls(true);
@@ -778,7 +1003,16 @@
                     showNotification('语音检测初始化失败，请刷新页面重试', 'error');
                 }
             });
+
+            console.log('✅ WebSocket管理器初始化成功');
+            return true;
+
+        } catch (error) {
+            console.error('❌ WebSocket管理器初始化失败:', error);
+            showNotification('WebSocket管理器初始化失败: ' + error.message, 'error');
+            return false;
         }
+    }
 
 
 
@@ -1071,8 +1305,305 @@
             }
         }
         
+        // 显示音频系统状态
+        function showAudioStatus() {
+            console.log('📊 音频系统状态检查 (v3.1 增强移动端):');
+            console.log('  Howler.js:', typeof Howl !== 'undefined' ? '✅ 已加载 (必需)' : '❌ 未加载 (致命)');
+            console.log('  Web Audio API:', typeof AudioContext !== 'undefined' ? '✅ 支持' : '❌ 不支持');
+            console.log('  移动端设备:', /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? '是' : '否');
+            console.log('  HTTPS环境:', location.protocol === 'https:' ? '是' : '否');
+            console.log('  🔊 音频架构: 纯Howler.js + 多重移动端解锁策略');
+            
+            if (typeof Howl === 'undefined') {
+                console.error('❌ 严重错误: Howler.js未加载，音频功能完全不可用！');
+            }
+            
+            if (wsManager) {
+                try {
+                    const status = wsManager.getStatus();
+                    console.log('  当前音频播放模式:', status.audioPlayMode || '未知');
+                    console.log('  音频解锁状态:', status.audioPlaybackUnlocked ? '✅ 已解锁' : '❌ 未解锁');
+                    console.log('  音频解锁尝试次数:', status.unlockAttempts || 0);
+                    console.log('  Howler声音对象数量:', status.howlerSoundsCount || 0);
+                    console.log('  WebSocket状态:', status);
+                    showNotification('📊 音频系统状态已输出到控制台', 'info');
+                } catch (error) {
+                    console.error('❌ 获取WebSocket状态失败:', error);
+                    console.log('  WebSocket管理器: 已初始化但状态获取失败');
+                    showNotification('📊 音频系统状态已输出到控制台（部分信息获取失败）', 'info');
+                }
+            } else {
+                console.log('  WebSocket管理器: 未初始化');
+                showNotification('📊 音频系统状态已输出到控制台', 'info');
+            }
+        }
+        
+        // 测试WebSocket管理器初始化
+        function testWSManagerInit() {
+            console.log('🧪 测试WebSocket管理器初始化...');
+            
+            if (wsManager) {
+                console.log('✅ WebSocket管理器已存在');
+                console.log('  类型:', typeof wsManager);
+                console.log('  解锁音频方法:', typeof wsManager.unlockAudioForMobile);
+                console.log('  tryHowlerSilentAudio方法:', typeof wsManager.tryHowlerSilentAudio);
+                console.log('  状态:', wsManager.getStatus ? wsManager.getStatus() : '无法获取状态');
+                showNotification('✅ WebSocket管理器状态正常', 'info');
+            } else {
+                console.log('❌ WebSocket管理器不存在，尝试初始化...');
+                const initResult = initWebSocketManager();
+                if (initResult) {
+                    console.log('✅ WebSocket管理器初始化成功');
+                    showNotification('✅ WebSocket管理器初始化成功', 'info');
+                } else {
+                    console.log('❌ WebSocket管理器初始化失败');
+                    showNotification('❌ WebSocket管理器初始化失败', 'error');
+                }
+            }
+        }
+
+        // 显示手动解锁音频按钮
+        function showManualUnlockButton() {
+            // 检查是否已经有解锁按钮
+            if (document.getElementById('manualUnlockBtn')) {
+                return; // 按钮已存在，不重复创建
+            }
+            
+            const unlockBtn = document.createElement('button');
+            unlockBtn.id = 'manualUnlockBtn';
+            unlockBtn.innerHTML = '🔊 点击解锁音频播放';
+            unlockBtn.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: linear-gradient(135deg, #FF6B6B, #FF8E8E);
+                color: white;
+                border: none;
+                padding: 15px 25px;
+                border-radius: 25px;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                z-index: 10001;
+                box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+                animation: pulse 2s infinite;
+                backdrop-filter: blur(10px);
+            `;
+            
+            // 添加脉冲动画
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes pulse {
+                    0% { transform: translate(-50%, -50%) scale(1); }
+                    50% { transform: translate(-50%, -50%) scale(1.05); }
+                    100% { transform: translate(-50%, -50%) scale(1); }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            unlockBtn.onclick = function() {
+                console.log('🎵 用户手动请求解锁音频');
+                
+                if (wsManager && wsManager.unlockAudioForMobile) {
+                    // 重置解锁尝试计数
+                    wsManager.unlockAttempts = 0;
+                    wsManager.lastUnlockTime = 0;
+                    
+                    // 执行解锁
+                    wsManager.unlockAudioForMobile();
+                    
+                    // 延迟检查结果
+                    setTimeout(() => {
+                        if (wsManager.audioPlaybackUnlocked) {
+                            showNotification('🔊 音频已成功解锁！', 'info');
+                            unlockBtn.remove();
+                            style.remove();
+                        } else {
+                            showNotification('⚠️ 解锁失败，请尝试其他浏览器或检查设备音量设置', 'error');
+                        }
+                    }, 500);
+                } else {
+                    showNotification('❌ 音频解锁功能不可用', 'error');
+                }
+            };
+            
+            document.body.appendChild(unlockBtn);
+            
+            // 5秒后自动隐藏（如果用户没有点击）
+            setTimeout(() => {
+                if (unlockBtn.parentNode) {
+                    unlockBtn.style.opacity = '0.7';
+                    unlockBtn.innerHTML = '🔊 解锁音频 (即将隐藏)';
+                }
+            }, 5000);
+            
+            // 10秒后完全移除
+            setTimeout(() => {
+                if (unlockBtn.parentNode) {
+                    unlockBtn.remove();
+                    style.remove();
+                }
+            }, 10000);
+        }
+
+        // 测试Howler.js音频解锁
+        function testHowlerUnlock() {
+            console.log('🧪 测试Howler.js音频解锁...');
+            
+            if (!wsManager) {
+                showNotification('❌ WebSocket管理器未初始化', 'error');
+                return;
+            }
+            
+            if (!wsManager.unlockAudioForMobile) {
+                showNotification('❌ 音频解锁方法不可用', 'error');
+                return;
+            }
+            
+            try {
+                console.log('🎵 调用音频解锁方法...');
+                wsManager.unlockAudioForMobile();
+                showNotification('✅ 音频解锁方法调用成功', 'info');
+            } catch (error) {
+                console.error('❌ 音频解锁方法调用失败:', error);
+                showNotification('❌ 音频解锁方法调用失败: ' + error.message, 'error');
+            }
+        }
+
+        // 检查版本信息
+        function checkVersion() {
+            console.log('📦 检查代码版本...');
+            
+            if (typeof WebSocketManager === 'undefined') {
+                console.error('❌ WebSocketManager类未加载');
+                showNotification('❌ WebSocketManager类未加载，请刷新页面', 'error');
+                return;
+            }
+            
+            if (wsManager && wsManager.getVersion) {
+                const versionInfo = wsManager.getVersion();
+                console.log('✅ WebSocket管理器版本信息:', versionInfo);
+                
+                showNotification(`✅ 当前版本: ${versionInfo.version} - ${versionInfo.description}`, 'info');
+                
+                // 检查是否是最新版本
+                if (versionInfo.version === '3.1.0') {
+                    console.log('✅ 使用最新版本，增强移动端音频解锁');
+                } else {
+                    console.warn('⚠️ 版本可能过旧，建议刷新页面');
+                    showNotification('⚠️ 检测到旧版本，请强制刷新页面 (Ctrl+Shift+R)', 'error');
+                }
+            } else {
+                console.warn('⚠️ 无法获取版本信息，可能使用旧版本');
+                showNotification('⚠️ 无法获取版本信息，请强制刷新页面清除缓存', 'error');
+            }
+            
+            // 检查Howler.js API
+            if (typeof Howl !== 'undefined') {
+                console.log('✅ Howler.js已加载');
+                console.log('  全局Howler对象:', typeof Howler);
+                console.log('  Howler.mute方法:', typeof Howler.mute);
+                console.log('  Howler.ctx:', typeof Howler.ctx);
+                
+                // 检查是否存在错误的on方法
+                if (typeof Howler.on !== 'undefined') {
+                    console.warn('⚠️ 检测到Howler.on方法存在，这可能是版本问题');
+                } else {
+                    console.log('✅ 确认Howler.on方法不存在（正确）');
+                }
+            } else {
+                console.warn('⚠️ Howler.js未加载');
+            }
+        }
+
+        // 手动解锁音频的测试函数
+        function forceUnlockAudio() {
+            console.log('🎵 强制解锁音频...');
+            
+            if (!wsManager) {
+                showNotification('❌ WebSocket管理器未初始化', 'error');
+                return;
+            }
+            
+            // 重置解锁状态
+            wsManager.unlockAttempts = 0;
+            wsManager.lastUnlockTime = 0;
+            wsManager.audioPlaybackUnlocked = false;
+            
+            // 执行解锁
+            wsManager.unlockAudioForMobile();
+            
+            // 检查结果
+            setTimeout(() => {
+                const status = wsManager.getStatus();
+                console.log('🔍 解锁后状态:', status);
+                
+                if (wsManager.audioPlaybackUnlocked) {
+                    showNotification('✅ 音频强制解锁成功！', 'info');
+                } else {
+                    showNotification('❌ 音频强制解锁失败', 'error');
+                    showManualUnlockButton();
+                }
+            }, 1000);
+        }
+
+        // 测试Howler.js统一播放
+        function testHowlerUnifiedPlayback() {
+            console.log('🧪 测试Howler.js统一播放功能...');
+            
+            if (typeof Howl === 'undefined') {
+                showNotification('❌ Howler.js未加载，无法测试', 'error');
+                return;
+            }
+            
+            try {
+                // 创建测试音频
+                const testSound = new Howl({
+                    src: ['data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmMd'],
+                    volume: 0.3,
+                    autoplay: false,
+                    onload: () => {
+                        console.log('✅ Howler.js: 测试音频加载成功');
+                        testSound.play();
+                    },
+                    onplay: () => {
+                        console.log('🔊 Howler.js: 统一播放测试开始');
+                        showNotification('🎵 Howler.js统一播放测试成功！', 'info');
+                    },
+                    onend: () => {
+                        console.log('✅ Howler.js: 统一播放测试完成');
+                        testSound.unload();
+                    },
+                    onloaderror: (id, error) => {
+                        console.error('❌ Howler.js: 加载失败', error);
+                        showNotification('❌ Howler.js加载测试失败', 'error');
+                        testSound.unload();
+                    },
+                    onplayerror: (id, error) => {
+                        console.error('❌ Howler.js: 播放失败', error);
+                        showNotification('❌ Howler.js播放测试失败，可能需要用户交互解锁', 'error');
+                        testSound.unload();
+                    }
+                });
+                
+                console.log('🎵 开始Howler.js统一播放测试...');
+                
+            } catch (error) {
+                console.error('❌ Howler.js测试异常:', error);
+                showNotification('❌ Howler.js测试异常: ' + error.message, 'error');
+            }
+        }
+
         // 在控制台暴露诊断函数
         window.testAudioPlayback = testAudioPlayback;
+        window.showAudioStatus = showAudioStatus;
+        window.testWSManagerInit = testWSManagerInit;
+        window.testHowlerUnlock = testHowlerUnlock;
+        window.checkVersion = checkVersion;
+        window.forceUnlockAudio = forceUnlockAudio;
+        window.showManualUnlockButton = showManualUnlockButton;
+        window.testHowlerUnifiedPlayback = testHowlerUnifiedPlayback;
         
         // ===== 通知函数 =====
         function showNotification(message, type = 'info') {
