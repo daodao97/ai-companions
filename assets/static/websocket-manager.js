@@ -21,6 +21,10 @@ class WebSocketManager {
         this.currentMessageId = null;
         this.isAutoPlaying = false;
         
+        // 对话流程管理
+        this.ignoredMessageIds = new Set(); // 需要忽略的消息ID集合
+        this.lastUserInputTime = null; // 最后一次用户输入时间
+        
         // 移动端音频播放相关
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         this.audioPlaybackUnlocked = false;
@@ -87,7 +91,7 @@ class WebSocketManager {
         }
         
         // 输出版本信息
-        console.log('�� WebSocket管理器版本: 3.1.0 - 增强移动端音频解锁，多重策略确保兼容性');
+        console.log('🚀 WebSocket管理器版本: 3.1.4 - 优化对话流程：仅在发送消息时停止播放，而非录音开始时');
         console.log('⏰ 初始化时间:', new Date().toISOString());
         
         // VAD 相关
@@ -610,10 +614,11 @@ class WebSocketManager {
                 type: 'text',
                 data: text
             };
-            this.ws.send(JSON.stringify(message));
             
-            // 发送消息时打断当前播放
-            this.interruptCurrentAudio();
+            // 发送新消息时管理对话流程
+            this.handleUserInput('text');
+            
+            this.ws.send(JSON.stringify(message));
             
             return true;
         } catch (error) {
@@ -639,10 +644,10 @@ class WebSocketManager {
                     data: base64Data
                 };
                 
-                this.ws.send(JSON.stringify(audioMessage));
+                // 发送新音频时管理对话流程
+                this.handleUserInput('audio');
                 
-                // 发送音频时打断当前播放
-                this.interruptCurrentAudio();
+                this.ws.send(JSON.stringify(audioMessage));
                 
                 // 清空录音
                 this.audioBlob = null;
@@ -890,6 +895,13 @@ class WebSocketManager {
     // 自动播放音频
     autoPlayAudio(audioData) {
         const messageId = audioData.message_id || 'default';
+        
+        // 检查是否应该忽略此消息的音频片段
+        if (this.ignoredMessageIds.has(messageId)) {
+            console.log(`🚫 忽略已取消消息 ${messageId} 的音频片段 (chunk_id: ${audioData.chunk_id || 0})`);
+            return;
+        }
+        
         const audioItem = {
             data: audioData.data,
             format: audioData.format || 'webm',
@@ -904,9 +916,10 @@ class WebSocketManager {
             return;
         }
         
-        // 如果是新消息，打断当前播放
+        // 如果是新消息，清除所有旧消息的音频并重新开始
         if (this.currentMessageId && this.currentMessageId !== messageId) {
-            this.interruptCurrentAudio();
+            console.log(`🔄 检测到新的对话轮次 ${messageId}，清除旧轮次 ${this.currentMessageId} 的所有音频`);
+            this.clearPreviousMessageAudio(this.currentMessageId);
         }
         
         // 按消息ID分组存储
@@ -916,7 +929,7 @@ class WebSocketManager {
         
         this.audioMessages[messageId].push(audioItem);
         
-        // 开始播放
+        // 开始播放新消息
         if (!this.isAutoPlaying || this.currentMessageId !== messageId) {
             this.currentMessageId = messageId;
             this.playAudioMessage(messageId);
@@ -926,6 +939,14 @@ class WebSocketManager {
     // 播放音频消息（Howler.js增强版）
     playAudioMessage(messageId) {
         if (!this.audioMessages[messageId] || this.audioMessages[messageId].length === 0) {
+            return;
+        }
+        
+        // 检查该消息是否被忽略
+        if (this.isMessageIgnored(messageId)) {
+            console.log(`🚫 消息 ${messageId} 在忽略列表中，跳过播放`);
+            // 清理被忽略消息的数据
+            this.clearMessageAudio(messageId);
             return;
         }
         
@@ -1104,6 +1125,43 @@ class WebSocketManager {
         this.currentMessageId = null;
     }
     
+    // 清除指定消息的所有音频
+    clearMessageAudio(messageId) {
+        if (!messageId) return;
+        
+        console.log(`🗑️ 清除消息 ${messageId} 的所有音频数据`);
+        
+        // 停止并清理该消息的所有Howler音频对象
+        this.howlerSounds.forEach((sound, key) => {
+            if (key.startsWith(messageId)) {
+                try {
+                    sound.stop();
+                    sound.unload();
+                    this.howlerSounds.delete(key);
+                } catch (error) {
+                    console.warn(`⚠️ 清理音频对象 ${key} 时出错:`, error);
+                }
+            }
+        });
+        
+        // 删除消息数据
+        if (this.audioMessages[messageId]) {
+            delete this.audioMessages[messageId];
+        }
+        
+        // 如果正在播放这个消息，停止播放
+        if (this.currentMessageId === messageId) {
+            this.isAutoPlaying = false;
+            this.currentAudio = null;
+            this.currentMessageId = null;
+        }
+    }
+    
+    // 清除前一个消息的音频响应（保留原方法以兼容）
+    clearPreviousMessageAudio(previousMessageId) {
+        this.clearMessageAudio(previousMessageId);
+    }
+    
     // 停止所有音频播放
     stopAllAudio() {
         this.interruptCurrentAudio();
@@ -1128,6 +1186,113 @@ class WebSocketManager {
         }
         
         this.audioMessages = {};
+    }
+    
+    // 清除所有音频响应
+    clearAllAudioResponses() {
+        console.log('🗑️ 清除所有音频响应');
+        
+        // 停止当前播放
+        this.interruptCurrentAudio();
+        
+        // 停止所有Howler音频对象
+        if (this.howlerSounds.size > 0) {
+            this.howlerSounds.forEach((sound, key) => {
+                try {
+                    sound.stop();
+                    sound.unload();
+                } catch (error) {
+                    console.warn('⚠️ 停止Howler音频出错:', key, error);
+                }
+            });
+            this.howlerSounds.clear();
+        }
+        
+        // 全局停止Howler音频
+        if (typeof Howler !== 'undefined') {
+            Howler.stop();
+        }
+        
+        // 清空所有消息存储
+        this.audioMessages = {};
+        this.currentMessageId = null;
+        this.isAutoPlaying = false;
+        this.currentAudio = null;
+        
+        // 注意：不清理忽略列表，因为服务器可能还会发送被忽略消息的音频片段
+        // 忽略列表将通过定时清理机制自动清理
+    }
+    
+    // 处理用户新输入时的对话流程管理（仅在发送消息时触发）
+    handleUserInput(inputType = 'unknown') {
+        console.log(`🔄 用户发送消息检测 (${inputType})，管理对话流程`);
+        
+        // 记录用户输入时间
+        this.lastUserInputTime = Date.now();
+        
+        // 将当前正在播放的消息ID加入忽略列表
+        if (this.currentMessageId) {
+            this.ignoredMessageIds.add(this.currentMessageId);
+            console.log(`📋 将消息 ${this.currentMessageId} 加入忽略列表，后续音频片段将被丢弃`);
+        }
+        
+        // 将所有缓存的消息ID也加入忽略列表
+        Object.keys(this.audioMessages).forEach(messageId => {
+            if (messageId !== this.currentMessageId) {
+                this.ignoredMessageIds.add(messageId);
+                console.log(`📋 将缓存消息 ${messageId} 加入忽略列表`);
+            }
+        });
+        
+        // 立即停止所有当前播放的音频
+        this.clearAllAudioResponses();
+        
+        // 触发对话流程变更事件
+        this.emit('conversationFlowChanged', {
+            type: 'user_message_sent',
+            inputType: inputType,
+            timestamp: this.lastUserInputTime,
+            previousMessageId: this.currentMessageId,
+            ignoredMessageIds: Array.from(this.ignoredMessageIds)
+        });
+        
+        // 重置状态，准备接收新的响应
+        this.currentMessageId = null;
+        this.isAutoPlaying = false;
+        
+        // 定时清理忽略列表（避免内存泄露）
+        this.scheduleIgnoreListCleanup();
+    }
+    
+    // 定时清理忽略列表
+    scheduleIgnoreListCleanup() {
+        // 30秒后清理忽略列表
+        setTimeout(() => {
+            const cleanupTime = Date.now();
+            const oldSize = this.ignoredMessageIds.size;
+            
+            // 清理超过30秒的忽略项（基于用户输入时间）
+            if (this.lastUserInputTime && (cleanupTime - this.lastUserInputTime) > 30000) {
+                this.ignoredMessageIds.clear();
+                if (oldSize > 0) {
+                    console.log(`🧹 清理忽略列表：移除 ${oldSize} 个旧消息ID`);
+                }
+            }
+        }, 30000);
+    }
+    
+    // 手动清理忽略列表
+    clearIgnoreList() {
+        const oldSize = this.ignoredMessageIds.size;
+        this.ignoredMessageIds.clear();
+        if (oldSize > 0) {
+            console.log(`🧹 手动清理忽略列表：移除 ${oldSize} 个消息ID`);
+        }
+    }
+    
+    // 检查消息是否被忽略
+    isMessageIgnored(messageId) {
+        return this.ignoredMessageIds.has(messageId);
     }
     
     // 心跳机制
@@ -1173,8 +1338,8 @@ class WebSocketManager {
     // 获取状态
     getStatus() {
         return {
-            version: '3.1.0',
-            lastUpdate: '增强移动端音频解锁，多重策略确保兼容性',
+            version: '3.1.4',
+            lastUpdate: '优化对话流程：仅在发送消息时停止播放，而非录音开始时',
             connectionStatus: this.connectionStatus,
             isConnected: this.isConnected(),
             isRecording: this.isRecording,
@@ -1187,15 +1352,23 @@ class WebSocketManager {
             isMobile: this.isMobile,
             unlockAttempts: this.unlockAttempts,
             lastUnlockTime: this.lastUnlockTime,
-            audioPlayMode: 'Howler.js (纯模式)'
+            audioPlayMode: 'Howler.js (纯模式)',
+            currentMessageId: this.currentMessageId,
+            audioMessagesCount: Object.keys(this.audioMessages).length,
+            conversationFlowOptimized: true,
+            userInteractionResponseEnabled: true,
+            ignoredMessageIdsCount: this.ignoredMessageIds.size,
+            lastUserInputTime: this.lastUserInputTime,
+            audioFragmentIgnoreEnabled: true,
+            stopOnMessageSendOnly: true
         };
     }
     
     // 获取版本信息
     getVersion() {
         return {
-            version: '3.1.0',
-            description: '增强移动端音频解锁，多重策略确保兼容性',
+            version: '3.1.4',
+            description: '优化对话流程：仅在发送消息时停止播放，而非录音开始时',
             timestamp: new Date().toISOString(),
             majorChanges: [
                 '🎵 完全移除原生Audio API支持',
@@ -1206,14 +1379,23 @@ class WebSocketManager {
                 '📱 增强移动端音频解锁机制',
                 '🔓 多重音频解锁策略（上下文恢复、静音播放、超短音频）',
                 '👆 增强用户交互检测和音频解锁',
-                '📋 改进移动端音频故障提示和解决方案'
+                '📋 改进移动端音频故障提示和解决方案',
+                '🔄 优化对话流优先级：新输入时立即清除旧响应',
+                '🗑️ 智能音频队列管理：按消息ID分组清理',
+                '⚡ 减少音频播放延迟和冲突',
+                '🎤 完善用户交互响应：录音、VAD、手动操作统一管理',
+                '📞 实时对话流程管理：任何用户输入都立即停止AI播放',
+                '🚫 音频片段忽略机制：彻底阻止服务器继续发送的旧消息音频',
+                '🧹 自动内存清理：定时清理忽略列表避免内存泄露',
+                '🎯 精准停止时机：仅在发送消息时停止播放，允许用户边听边准备'
             ],
             removedFeatures: [
                 '原生Audio播放方法',
                 '音频播放降级策略',
                 'isHowlerAvailable兼容检查',
                 '原生音频解锁方法',
-                '平台差异化处理逻辑'
+                '平台差异化处理逻辑',
+                '录音开始时停止播放（现在仅在发送消息时停止）'
             ],
             preservedFeatures: [
                 '智能音频解锁重试机制',
@@ -1221,6 +1403,24 @@ class WebSocketManager {
                 '手动解锁按钮界面',
                 '防止频繁重复尝试',
                 '增强的错误处理和用户提示'
+            ],
+            newFeatures: [
+                '对话流优先级管理：新对话轮次自动清除旧响应',
+                '按消息ID分组的音频队列管理',
+                '智能音频清理：clearMessageAudio() 方法',
+                '完整的音频响应清除：clearAllAudioResponses() 方法',
+                '实时对话状态跟踪：currentMessageId 和 audioMessagesCount',
+                '优化的用户体验：减少音频播放冲突和延迟',
+                '统一的用户交互管理：handleUserInput() 方法',
+                '多种输入类型检测：文本、语音消息',
+                '对话流程变更事件：conversationFlowChanged 事件',
+                '精准响应机制：仅消息发送时停止AI音频播放',
+                '音频片段忽略机制：ignoredMessageIds 集合管理',
+                '智能忽略检查：isMessageIgnored() 方法',
+                '自动清理机制：scheduleIgnoreListCleanup() 和 clearIgnoreList()',
+                '彻底阻止旧音频：服务器继续发送的音频片段被完全丢弃',
+                '内存优化：定时清理避免忽略列表无限增长',
+                '用户友好：录音时不打断播放，仅发送时才打断'
             ]
         };
     }
@@ -1236,6 +1436,32 @@ class WebSocketManager {
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
         }
+        
+        // 清理忽略列表
+        this.clearIgnoreList();
+    }
+    
+    // 调试方法：获取忽略列表信息
+    getIgnoreListInfo() {
+        return {
+            ignoredMessageIds: Array.from(this.ignoredMessageIds),
+            ignoredCount: this.ignoredMessageIds.size,
+            lastUserInputTime: this.lastUserInputTime,
+            timeSinceLastInput: this.lastUserInputTime ? Date.now() - this.lastUserInputTime : null
+        };
+    }
+    
+    // 调试方法：模拟服务器发送旧消息音频
+    simulateOldAudioFragment(messageId, chunkId = 0) {
+        console.log(`🧪 模拟服务器发送旧消息 ${messageId} 的音频片段 ${chunkId}`);
+        this.autoPlayAudio({
+            message_id: messageId,
+            chunk_id: chunkId,
+            data: 'fake_audio_data',
+            format: 'webm',
+            is_end: false,
+            size: 1024
+        });
     }
 }
 
