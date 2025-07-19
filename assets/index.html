@@ -663,6 +663,9 @@
                 if (message.type === 'text') {
                     // 触发Live2D模型动作
                     playRandomMotion();
+                } else if (message.type === 'system') {
+                    // 显示系统消息通知
+                    showNotification(message.content, 'info');
                 }
             });
 
@@ -700,7 +703,13 @@
                         const vadStarted = wsManager.toggleVAD();
                         if (vadStarted) {
                             console.log('✅ 事件机制：语音检测和录音上传已自动启用');
-                            showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
+                            
+                            // 移动端特殊提示
+                            if (wsManager.isMobile && !wsManager.userInteracted) {
+                                showNotification('🎤 语音录音已启用！📱 音频播放需要点击屏幕激活', 'info');
+                            } else {
+                                showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
+                            }
 
                             // 同步更新UI状态
                             syncVoiceStatusUI();
@@ -987,6 +996,11 @@
                 // 创建移动端Toast通知
                 const toast = document.createElement('div');
                 toast.textContent = message;
+                
+                // 根据消息类型确定显示时间和样式
+                const isSystemMessage = message.includes('📱') || message.includes('🎵') || message.includes('音频');
+                const displayTime = isSystemMessage ? 5000 : 3000; // 系统消息显示更长时间
+                
                 toast.style.cssText = `
                     position: fixed;
                     top: 80px;
@@ -1004,9 +1018,11 @@
                     backdrop-filter: blur(10px);
                     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
                     animation: slideIn 0.3s ease;
+                    line-height: 1.4;
+                    word-wrap: break-word;
                 `;
                 
-                // 添加动画
+                // 添加动画和点击关闭功能
                 const style = document.createElement('style');
                 style.textContent = `
                     @keyframes slideIn {
@@ -1016,11 +1032,9 @@
                 `;
                 document.head.appendChild(style);
                 
-                document.body.appendChild(toast);
-                
-                // 3秒后自动移除
-                setTimeout(() => {
-                    toast.style.animation = 'slideIn 0.3s ease reverse';
+                // 点击关闭功能
+                toast.addEventListener('click', () => {
+                    toast.style.animation = 'slideIn 0.2s ease reverse';
                     setTimeout(() => {
                         if (toast.parentNode) {
                             toast.parentNode.removeChild(toast);
@@ -1028,12 +1042,33 @@
                         if (style.parentNode) {
                             style.parentNode.removeChild(style);
                         }
-                    }, 300);
-                }, 3000);
+                    }, 200);
+                });
+                
+                document.body.appendChild(toast);
+                
+                // 自动移除
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.style.animation = 'slideIn 0.3s ease reverse';
+                        setTimeout(() => {
+                            if (toast.parentNode) {
+                                toast.parentNode.removeChild(toast);
+                            }
+                            if (style.parentNode) {
+                                style.parentNode.removeChild(style);
+                            }
+                        }, 300);
+                    }
+                }, displayTime);
                 
                 // 触觉反馈（如果支持）
-                if (navigator.vibrate && type === 'error') {
-                    navigator.vibrate([100, 50, 100]);
+                if (navigator.vibrate) {
+                    if (type === 'error') {
+                        navigator.vibrate([100, 50, 100]);
+                    } else if (isSystemMessage) {
+                        navigator.vibrate([50]);
+                    }
                 }
             }
         }
