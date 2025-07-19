@@ -94,8 +94,11 @@ class WebSocketManager {
                 console.warn('⚠️ 音频上下文创建失败:', error);
             }
             
-            // 监听用户交互事件以解锁音频
+            // 立即监听用户交互事件以解锁音频
             this.addUserInteractionListeners();
+            
+            // 同时监听Start按钮点击作为用户交互
+            this.addStartButtonInteractionListener();
         }
     }
     
@@ -145,6 +148,57 @@ class WebSocketManager {
         });
         
         console.log('👆 已添加用户交互监听器:', events);
+    }
+    
+    // 专门监听Start按钮点击作为用户交互
+    addStartButtonInteractionListener() {
+        const handleStartButtonClick = async (event) => {
+            console.log('🎯 检测到Start按钮点击，立即解锁音频...');
+            
+            if (!this.userInteracted) {
+                this.userInteracted = true;
+                
+                try {
+                    // 解锁音频上下文
+                    if (this.audioContext && this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                        console.log('✅ Start按钮触发：音频上下文已解锁, 状态:', this.audioContext.state);
+                        this.audioContextUnlocked = true;
+                    }
+                    
+                    // 彻底解锁音频播放
+                    await this.unlockAudioPlayback();
+                    
+                } catch (error) {
+                    console.error('❌ Start按钮音频解锁失败:', error);
+                }
+            }
+        };
+        
+        // 等待DOM加载完成后绑定Start按钮事件
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                this.bindStartButtonListener(handleStartButtonClick);
+            });
+        } else {
+            this.bindStartButtonListener(handleStartButtonClick);
+        }
+    }
+    
+    // 绑定Start按钮监听器
+    bindStartButtonListener(handler) {
+        const startBtn = document.getElementById('startStopBtn');
+        if (startBtn) {
+            console.log('🔘 找到Start按钮，绑定音频解锁监听器');
+            startBtn.addEventListener('touchstart', handler, { once: true, passive: false });
+            startBtn.addEventListener('click', handler, { once: true, passive: false });
+        } else {
+            console.warn('⚠️ 未找到Start按钮 (ID: startStopBtn)');
+            // 延迟重试
+            setTimeout(() => {
+                this.bindStartButtonListener(handler);
+            }, 500);
+        }
     }
     
     // 彻底解锁音频播放
@@ -203,6 +257,14 @@ class WebSocketManager {
                 timestamp: Date.now()
             });
             
+            // 如果已连接且有待播放音频，立即处理
+            if (this.isConnected() && this.pendingAudioQueue.length > 0) {
+                console.log('🚀 音频解锁完成且已连接，立即处理待播放音频');
+                setTimeout(() => {
+                    this.processPendingAudioQueue();
+                }, 200);
+            }
+            
         } catch (error) {
             console.error('❌ 音频解锁过程出错:', error);
             
@@ -221,10 +283,33 @@ class WebSocketManager {
     processPendingAudioQueue() {
         console.log('🎵 处理待播放音频队列, 队列长度:', this.pendingAudioQueue.length);
         
-        while (this.pendingAudioQueue.length > 0) {
-            const audioData = this.pendingAudioQueue.shift();
-            this.autoPlayAudio(audioData);
+        if (this.pendingAudioQueue.length === 0) {
+            console.log('✅ 音频队列为空，无需处理');
+            return;
         }
+        
+        // 通知用户开始播放排队的音频
+        this.emit('message', {
+            type: 'system',
+            content: `🎵 开始播放 ${this.pendingAudioQueue.length} 条待播放音频`,
+            timestamp: Date.now()
+        });
+        
+        // 逐个处理队列中的音频
+        const processQueue = () => {
+            if (this.pendingAudioQueue.length > 0) {
+                const audioData = this.pendingAudioQueue.shift();
+                console.log('🔊 从队列中播放音频:', audioData.message_id || 'default');
+                this.autoPlayAudio(audioData);
+                
+                // 如果队列还有更多音频，继续处理
+                if (this.pendingAudioQueue.length > 0) {
+                    setTimeout(processQueue, 200); // 音频间小间隔
+                }
+            }
+        };
+        
+        processQueue();
     }
     
     // 获取适合当前环境的WebSocket URL
@@ -316,6 +401,21 @@ class WebSocketManager {
                 this.isConnecting = false;
                 this.updateStatus('connected');
                 this.emit('connect', event);
+                
+                // 移动端：连接成功后检查音频播放准备状态
+                if (this.isMobile) {
+                    console.log('📱 移动端WebSocket连接成功，检查音频播放状态...');
+                    console.log('用户已交互:', this.userInteracted, '音频播放就绪:', this.audioPlaybackReady);
+                    
+                    // 如果用户已经交互过，立即处理待播放音频
+                    if (this.userInteracted && this.audioPlaybackReady && this.pendingAudioQueue.length > 0) {
+                        console.log('🎵 连接成功且音频已解锁，立即处理待播放音频队列');
+                        setTimeout(() => {
+                            this.processPendingAudioQueue();
+                        }, 100);
+                    }
+                }
+                
                 this.initMicrophone();
                 if (this.config.enableHeartbeat) {
                     this.startHeartbeat();
@@ -810,8 +910,18 @@ class WebSocketManager {
                 this.currentAudio = new Audio(audioUrl);
                 
                 this.currentAudio.oncanplay = () => {
+                    if (this.debugMode) {
+                        console.log('🎵 音频可以播放，开始播放...');
+                    }
                     this.playAudioWithRetry(this.currentAudio, audioUrl, playNextChunk);
                 };
+                
+                // 移动端优化：设置音频属性
+                if (this.isMobile) {
+                    this.currentAudio.preload = 'auto';
+                    this.currentAudio.volume = 1.0;
+                    this.currentAudio.crossOrigin = 'anonymous';
+                }
                 
                 this.currentAudio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
