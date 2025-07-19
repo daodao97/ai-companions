@@ -431,6 +431,11 @@
                 // 当前未连接，点击连接
                 console.log('📱 检测设备类型:', /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? '移动端' : '桌面端');
                 
+                // 移动端立即解锁音频
+                if (wsManager.isMobile) {
+                    wsManager.unlockAudioForMobile();
+                }
+                
                 updateStartStopButton('connecting');
                 
                 try {
@@ -612,33 +617,14 @@
                 enableWSControls(true);
                 updateStartStopButton('connected');
                 console.log('🔗 WebSocket 连接成功');
-
-                // 移动端特殊处理
-                if (wsManager.isMobile) {
-                    console.log('📱 移动端连接成功，检查音频播放状态...');
-                    
-                    // 如果用户已经交互过，显示准备就绪提示
-                    if (wsManager.userInteracted && wsManager.audioPlaybackReady) {
-                        showNotification('✅ 连接成功！音频播放已就绪', 'info');
-                    } else {
-                        showNotification('📱 连接成功！请点击屏幕任意位置激活音频播放', 'info');
-                    }
-                } else {
-                    showNotification('🔗 连接成功！', 'info');
-                }
+                showNotification('🔗 连接成功！', 'info');
 
                 // 自动启用语音检测（参考 wss_test.html）
                 setTimeout(() => {
                     if (wsManager && wsManager.vadEnabled) {
                         wsManager.toggleVAD();
                         console.log('🎤 自动启用语音检测和录音上传');
-
-                        // 移动端特殊提示
-                        if (wsManager.isMobile && !wsManager.userInteracted) {
-                            showNotification('🎤 语音录音已启用！📱 音频播放需要点击屏幕激活', 'info');
-                        } else {
-                            showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
-                        }
+                        showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
 
                         // 同步更新UI状态
                         syncVoiceStatusUI();
@@ -683,9 +669,6 @@
                 if (message.type === 'text') {
                     // 触发Live2D模型动作
                     playRandomMotion();
-                } else if (message.type === 'system') {
-                    // 显示系统消息通知
-                    showNotification(message.content, 'info');
                 }
             });
 
@@ -723,13 +706,7 @@
                         const vadStarted = wsManager.toggleVAD();
                         if (vadStarted) {
                             console.log('✅ 事件机制：语音检测和录音上传已自动启用');
-                            
-                            // 移动端特殊提示
-                            if (wsManager.isMobile && !wsManager.userInteracted) {
-                                showNotification('🎤 语音录音已启用！📱 音频播放需要点击屏幕激活', 'info');
-                            } else {
-                                showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
-                            }
+                            showNotification('🎤 语音录音已启用，开始说话即可自动录音发送', 'info');
 
                             // 同步更新UI状态
                             syncVoiceStatusUI();
