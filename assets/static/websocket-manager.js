@@ -75,7 +75,7 @@ class WebSocketManager {
         return uid;
     }
     
-    // 简单的音频解锁方法
+    // 移动端音频解锁方法（增强版）
     unlockAudioForMobile() {
         if (this.isMobile && !this.audioPlaybackUnlocked) {
             console.log('📱 移动端音频解锁...');
@@ -84,16 +84,44 @@ class WebSocketManager {
                 const silentAudio = new Audio();
                 silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAAAQIDqAgAAgQAAAEgAAAAQAUAA';
                 silentAudio.volume = 0.01;
-                silentAudio.play().then(() => {
-                    console.log('✅ 移动端音频已解锁');
+                silentAudio.muted = false;
+                silentAudio.preload = 'auto';
+                
+                const playPromise = silentAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('✅ 移动端音频已解锁');
+                        this.audioPlaybackUnlocked = true;
+                        
+                        // 立即停止静音音频
+                        silentAudio.pause();
+                        silentAudio.currentTime = 0;
+                        
+                        // 触发自定义事件通知页面音频已解锁
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                                detail: { success: true }
+                            }));
+                        }
+                        
+                    }).catch((error) => {
+                        console.warn('⚠️ 静音音频播放失败:', error);
+                        this.audioPlaybackUnlocked = false;
+                        
+                        // 显示用户提示
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('audioUnlocked', {
+                                detail: { success: false, error: error }
+                            }));
+                        }
+                    });
+                } else {
+                    console.log('⚠️ 浏览器不支持音频播放Promise');
                     this.audioPlaybackUnlocked = true;
-                }).catch(() => {
-                    console.log('⚠️ 静音音频播放失败，但标记为已解锁');
-                    this.audioPlaybackUnlocked = true;
-                });
+                }
             } catch (error) {
-                console.log('⚠️ 音频解锁异常，但标记为已解锁');
-                this.audioPlaybackUnlocked = true;
+                console.error('❌ 音频解锁异常:', error);
+                this.audioPlaybackUnlocked = false;
             }
         }
     }
@@ -599,9 +627,30 @@ class WebSocketManager {
         }
     }
     
-    // 播放音频消息
+    // 播放音频消息（增强的移动端兼容版本）
     playAudioMessage(messageId) {
         if (!this.audioMessages[messageId] || this.audioMessages[messageId].length === 0) {
+            return;
+        }
+        
+        // 检查音频自动播放是否启用
+        if (!this.audioAutoPlayEnabled) {
+            console.log('🔇 音频自动播放已禁用，跳过播放');
+            return;
+        }
+        
+        // 移动端检查：如果音频未解锁，先尝试解锁
+        if (this.isMobile && !this.audioPlaybackUnlocked) {
+            console.log('📱 移动端音频未解锁，无法自动播放');
+            // 不自动解锁，而是显示提示让用户主动操作
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
+                    detail: { 
+                        reason: 'unlock_required',
+                        messageId: messageId 
+                    }
+                }));
+            }
             return;
         }
         
@@ -610,6 +659,7 @@ class WebSocketManager {
         
         const sortedChunks = this.audioMessages[messageId].sort((a, b) => a.chunkId - b.chunkId);
         let currentIndex = 0;
+        let playbackFailures = 0;
         
         const playNextChunk = () => {
             if (currentIndex >= sortedChunks.length) {
@@ -641,15 +691,59 @@ class WebSocketManager {
                 const audioUrl = URL.createObjectURL(audioBlob);
                 this.currentAudio = new Audio(audioUrl);
                 
+                // 移动端优化设置
+                if (this.isMobile) {
+                    this.currentAudio.preload = 'auto';
+                    this.currentAudio.volume = 1.0;
+                    this.currentAudio.muted = false;
+                }
+                
                 this.currentAudio.oncanplay = () => {
-                    this.currentAudio.play().catch(error => {
-                        console.error('播放失败:', error);
-                        // 移动端特殊处理：如果播放失败且未解锁，尝试解锁
-                        if (this.isMobile && !this.audioPlaybackUnlocked) {
-                            this.unlockAudioForMobile();
-                        }
+                    const playPromise = this.currentAudio.play();
+                    
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            console.log('🔊 音频播放成功');
+                            playbackFailures = 0; // 重置失败计数
+                        }).catch(error => {
+                            console.error('🔊 音频播放失败:', error);
+                            playbackFailures++;
+                            
+                            // 处理不同类型的播放错误
+                            if (error.name === 'NotAllowedError') {
+                                console.error('❌ 用户禁用了音频自动播放');
+                                if (this.isMobile && !this.audioPlaybackUnlocked) {
+                                    // 移动端音频解锁失败，显示用户提示
+                                    if (typeof window !== 'undefined') {
+                                        window.dispatchEvent(new CustomEvent('audioPlaybackBlocked', {
+                                            detail: { 
+                                                reason: 'user_interaction_required',
+                                                messageId: messageId,
+                                                error: error
+                                            }
+                                        }));
+                                    }
+                                }
+                            } else if (error.name === 'AbortError') {
+                                console.log('🛑 音频播放被中断');
+                            }
+                            
+                            URL.revokeObjectURL(audioUrl);
+                            
+                            // 如果连续失败次数过多，停止尝试
+                            if (playbackFailures >= 3) {
+                                console.error('❌ 连续播放失败，停止尝试');
+                                this.isAutoPlaying = false;
+                                this.currentAudio = null;
+                                return;
+                            }
+                            
+                            playNextChunk();
+                        });
+                    } else {
+                        console.warn('⚠️ 浏览器不支持音频播放Promise');
                         playNextChunk();
-                    });
+                    }
                 };
                 
                 this.currentAudio.onended = () => {
@@ -660,11 +754,33 @@ class WebSocketManager {
                 this.currentAudio.onerror = (error) => {
                     console.error('🔊 音频加载错误:', error);
                     URL.revokeObjectURL(audioUrl);
+                    playbackFailures++;
+                    
+                    if (playbackFailures >= 3) {
+                        console.error('❌ 连续加载失败，停止尝试');
+                        this.isAutoPlaying = false;
+                        this.currentAudio = null;
+                        return;
+                    }
+                    
                     playNextChunk();
                 };
                 
+                this.currentAudio.onloadstart = () => {
+                    console.log('🔄 开始加载音频chunk:', currentIndex - 1);
+                };
+                
             } catch (error) {
-                console.error('音频处理错误:', error);
+                console.error('❌ 音频处理错误:', error);
+                playbackFailures++;
+                
+                if (playbackFailures >= 3) {
+                    console.error('❌ 连续处理失败，停止尝试');
+                    this.isAutoPlaying = false;
+                    this.currentAudio = null;
+                    return;
+                }
+                
                 playNextChunk();
             }
         };

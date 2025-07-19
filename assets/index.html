@@ -320,6 +320,14 @@
                 // 恢复自动播放功能
                 if (wsManager) {
                     wsManager.audioAutoPlayEnabled = true;
+                    
+                    // 移动端特殊处理：确保音频已解锁
+                    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                    if (isMobile && !wsManager.audioPlaybackUnlocked) {
+                        console.log('📱 开启音量时检测到移动端音频未解锁，尝试解锁...');
+                        wsManager.unlockAudioForMobile();
+                        showNotification('📱 正在启用移动端音频播放...', 'info');
+                    }
                 }
 
             } else {
@@ -524,6 +532,48 @@
                 });
             }
             
+            // 监听音频播放被阻止的事件
+            window.addEventListener('audioPlaybackBlocked', function(event) {
+                const detail = event.detail;
+                console.log('🔇 音频播放被阻止:', detail);
+                
+                if (detail.reason === 'unlock_required') {
+                    showNotification('📱 移动端音频需要用户操作解锁，请点击屏幕任意位置启用音频播放', 'info');
+                } else if (detail.reason === 'user_interaction_required') {
+                    showNotification('📱 请点击屏幕任意位置以启用音频播放功能', 'info');
+                }
+            });
+            
+            // 监听音频解锁事件
+            window.addEventListener('audioUnlocked', function(event) {
+                const detail = event.detail;
+                console.log('🔊 音频解锁事件:', detail);
+                
+                if (detail.success) {
+                    showNotification('🔊 移动端音频播放已启用！', 'info');
+                } else {
+                    showNotification('⚠️ 音频解锁失败，请手动开启音量并重试', 'error');
+                }
+            });
+            
+            // 移动端音频解锁全局处理器
+            let audioUnlockHandled = false;
+            function handleUserInteractionForAudio() {
+                if (isMobile && wsManager && !wsManager.audioPlaybackUnlocked && !audioUnlockHandled) {
+                    console.log('👆 检测到用户交互，尝试解锁移动端音频...');
+                    audioUnlockHandled = true;
+                    wsManager.unlockAudioForMobile();
+                }
+            }
+            
+            // 为多种用户交互添加音频解锁
+            ['click', 'touchstart', 'touchend', 'keydown'].forEach(eventType => {
+                document.addEventListener(eventType, handleUserInteractionForAudio, { 
+                    once: false, // 不只执行一次，因为第一次可能失败
+                    passive: true 
+                });
+            });
+            
             // 移动端按钮事件优化
             const startStopBtn = document.getElementById('startStopBtn');
             if (startStopBtn) {
@@ -541,6 +591,9 @@
                         e.stopPropagation();
                         this.style.transform = 'scale(0.95)';
                         console.log('📱 移动端Start按钮触摸开始');
+                        
+                        // 触摸时立即尝试解锁音频
+                        handleUserInteractionForAudio();
                     }, { passive: false });
                     
                     newBtn.addEventListener('touchend', function(e) {
@@ -981,6 +1034,46 @@
             }
         }
 
+        // ===== 音频诊断功能 =====
+        function testAudioPlayback() {
+            console.log('🧪 开始音频播放诊断...');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            try {
+                // 创建测试音频
+                const testAudio = new Audio();
+                testAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAAAQIDqAgAAgQAAAEgAAAAQAUAA';
+                testAudio.volume = 0.3;
+                testAudio.preload = 'auto';
+                
+                const playPromise = testAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('✅ 音频测试播放成功');
+                        showNotification('🔊 音频播放测试成功！', 'info');
+                        testAudio.pause();
+                        testAudio.currentTime = 0;
+                    }).catch((error) => {
+                        console.error('❌ 音频测试播放失败:', error);
+                        if (error.name === 'NotAllowedError') {
+                            showNotification('⚠️ 浏览器阻止了音频自动播放，请手动点击播放或检查浏览器设置', 'error');
+                        } else {
+                            showNotification('❌ 音频播放测试失败: ' + error.message, 'error');
+                        }
+                    });
+                } else {
+                    console.log('⚠️ 浏览器不支持音频播放Promise');
+                    showNotification('⚠️ 浏览器兼容性问题，可能无法正常播放音频', 'error');
+                }
+            } catch (error) {
+                console.error('❌ 音频诊断异常:', error);
+                showNotification('❌ 音频诊断失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 在控制台暴露诊断函数
+        window.testAudioPlayback = testAudioPlayback;
+        
         // ===== 通知函数 =====
         function showNotification(message, type = 'info') {
             // 控制台输出
