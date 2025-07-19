@@ -26,6 +26,8 @@ class WebSocketManager {
         this.audioContext = null;
         this.pendingAudioQueue = [];
         this.userInteracted = false;
+        this.audioPlaybackReady = false;
+        this.debugMode = true;
         
         // VAD 相关
         this.vad = null;
@@ -100,32 +102,39 @@ class WebSocketManager {
     // 添加用户交互监听器
     addUserInteractionListeners() {
         const events = ['click', 'touchstart', 'touchend', 'keydown'];
-        const unlockAudio = async () => {
+        const unlockAudio = async (event) => {
             if (!this.userInteracted) {
-                console.log('🎯 检测到用户交互，解锁音频播放...');
+                console.log('🎯 检测到用户交互事件:', event.type, '开始解锁音频播放...');
                 this.userInteracted = true;
                 
-                // 解锁音频上下文
-                if (this.audioContext && this.audioContext.state === 'suspended') {
-                    try {
+                try {
+                    // 解锁音频上下文
+                    if (this.audioContext && this.audioContext.state === 'suspended') {
                         await this.audioContext.resume();
                         console.log('✅ 音频上下文已解锁, 状态:', this.audioContext.state);
                         this.audioContextUnlocked = true;
-                        
-                        // 播放静音音频来完全解锁
-                        this.playSilentAudio();
-                        
-                        // 处理待播放的音频队列
-                        this.processPendingAudioQueue();
-                        
-                    } catch (error) {
-                        console.error('❌ 音频上下文解锁失败:', error);
                     }
+                    
+                    // 创建并播放多个测试音频来彻底解锁
+                    await this.unlockAudioPlayback();
+                    
+                    // 处理待播放的音频队列
+                    setTimeout(() => {
+                        this.processPendingAudioQueue();
+                    }, 100);
+                    
+                } catch (error) {
+                    console.error('❌ 音频解锁失败:', error);
+                    this.emit('message', {
+                        type: 'system',
+                        content: '音频解锁失败: ' + error.message,
+                        timestamp: Date.now()
+                    });
                 }
                 
                 // 移除事件监听器
-                events.forEach(event => {
-                    document.removeEventListener(event, unlockAudio, true);
+                events.forEach(eventType => {
+                    document.removeEventListener(eventType, unlockAudio, true);
                 });
             }
         };
@@ -134,21 +143,77 @@ class WebSocketManager {
         events.forEach(event => {
             document.addEventListener(event, unlockAudio, true);
         });
+        
+        console.log('👆 已添加用户交互监听器:', events);
     }
     
-    // 播放静音音频以完全解锁音频播放
-    playSilentAudio() {
+    // 彻底解锁音频播放
+    async unlockAudioPlayback() {
+        console.log('🔓 开始彻底解锁音频播放功能...');
+        
         try {
+            // 方法1: 播放静音音频
             const silentAudio = new Audio();
             silentAudio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjQ1LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV6urq6urq6urq6urq6urq6urq6urq6urq6v////////////////////////////////8AAAAATGF2YzU4Ljk1AAAAAAAAAAAAAAAAJAAAAAAAAAAAQCAAAAAAAAAAAAAAAAAAAAAAAP/zgEQAAAApMEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==';
             silentAudio.volume = 0.01;
-            silentAudio.play().then(() => {
-                console.log('🔇 静音音频播放成功，音频播放已完全解锁');
-            }).catch(() => {
-                console.log('⚠️ 静音音频播放失败，但这是正常的');
+            silentAudio.muted = true;
+            
+            const silentPlayPromise = silentAudio.play();
+            if (silentPlayPromise) {
+                await silentPlayPromise;
+                console.log('✅ 静音音频播放成功');
+            }
+            
+            // 方法2: 通过AudioContext创建和播放音频
+            if (this.audioContext) {
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                gainNode.gain.setValueAtTime(0.001, this.audioContext.currentTime);
+                oscillator.frequency.setValueAtTime(440, this.audioContext.currentTime);
+                
+                oscillator.start();
+                oscillator.stop(this.audioContext.currentTime + 0.1);
+                
+                console.log('✅ AudioContext 测试音频播放成功');
+            }
+            
+            // 方法3: 创建并播放空的音频Buffer
+            if (this.audioContext) {
+                const buffer = this.audioContext.createBuffer(1, 1, 22050);
+                const source = this.audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(this.audioContext.destination);
+                source.start();
+                
+                console.log('✅ 空音频Buffer播放成功');
+            }
+            
+            // 标记音频播放已就绪
+            this.audioPlaybackReady = true;
+            console.log('🎉 音频播放功能已完全解锁！');
+            
+            // 通知外部音频已解锁
+            this.emit('message', {
+                type: 'system',
+                content: '✅ 音频播放功能已激活，可以正常播放音频了！',
+                timestamp: Date.now()
             });
+            
         } catch (error) {
-            console.log('⚠️ 静音音频创建失败:', error);
+            console.error('❌ 音频解锁过程出错:', error);
+            
+            // 即使部分失败，也标记为可尝试播放
+            this.audioPlaybackReady = true;
+            
+            this.emit('message', {
+                type: 'system',
+                content: '⚠️ 音频解锁部分失败，但将尝试播放音频',
+                timestamp: Date.now()
+            });
         }
     }
     
@@ -637,7 +702,18 @@ class WebSocketManager {
     
     // 自动播放音频
     autoPlayAudio(audioData) {
-        console.log('🎵 收到音频数据, 移动端:', this.isMobile, '用户已交互:', this.userInteracted);
+        if (this.debugMode) {
+            console.log('🎵 收到音频数据:', {
+                messageId: audioData.message_id,
+                chunkId: audioData.chunk_id,
+                format: audioData.format,
+                size: audioData.size,
+                移动端: this.isMobile,
+                用户已交互: this.userInteracted,
+                音频播放就绪: this.audioPlaybackReady,
+                自动播放启用: this.audioAutoPlayEnabled
+            });
+        }
         
         const messageId = audioData.message_id || 'default';
         const audioItem = {
@@ -649,17 +725,25 @@ class WebSocketManager {
             messageId: messageId
         };
         
+        // 检查自动播放是否被禁用
+        if (!this.audioAutoPlayEnabled) {
+            console.log('🔇 自动播放已禁用，忽略音频');
+            return;
+        }
+        
         // 移动端处理：如果用户还未交互，将音频加入队列
-        if (this.isMobile && !this.userInteracted) {
-            console.log('📥 移动端用户未交互，音频加入待播放队列');
+        if (this.isMobile && (!this.userInteracted || !this.audioPlaybackReady)) {
+            console.log('📥 移动端音频播放未就绪，音频加入待播放队列');
             this.pendingAudioQueue.push(audioData);
             
-            // 提示用户需要交互
-            this.emit('message', {
-                type: 'system',
-                content: '📱 移动端需要用户交互才能播放音频，请点击屏幕任意位置',
-                timestamp: Date.now()
-            });
+            // 只在第一次收到音频时提示用户
+            if (this.pendingAudioQueue.length === 1) {
+                this.emit('message', {
+                    type: 'system',
+                    content: '📱 收到音频消息！请点击屏幕任意位置激活音频播放',
+                    timestamp: Date.now()
+                });
+            }
             
             return;
         }
